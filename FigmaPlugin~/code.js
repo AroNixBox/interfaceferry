@@ -198,6 +198,8 @@ async function exportNode(node, mode, scale, keep) {
   }
 }
 
+// --- Derived from com.unity.ui.figma 0.2.0-exp.1 (Figma plugin code.js: imageKeyFor, stageImage).
+// --- Copyright © 2026 Unity Technologies, Unity Companion License, not MIT: see Third Party Notices.md.
 // Same key scheme as the connector: identical artwork shares one file.
 function imageKeyFor(bytes) {
   let h1 = 0x811c9dc5, h2 = 0x01000193;
@@ -216,6 +218,7 @@ function stageImage(bytes, ctx) {
   }
   return key;
 }
+// --- End of portion derived from com.unity.ui.figma.
 
 // A property that differs across the text is figma.mixed; the first character's value stands for all of it.
 function firstOf(node, prop, rangeGetter) {

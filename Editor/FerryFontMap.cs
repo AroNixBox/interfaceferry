@@ -160,6 +160,8 @@ namespace InterfaceFerry
             return sb.ToString();
         }
 
+        // --- Derived from com.unity.ui.figma 0.2.0-exp.1 (Editor/Mapping/FigmaFontMap.cs: RawPPtr, RawContainer, PPtrContainer, MakeAssetUrl).
+        // --- Copyright © 2026 Unity Technologies, Unity Companion License, not MIT: see Third Party Notices.md.
         // Populated by JsonUtility from the EditorJsonUtility PPtr round-trip, never assigned in code.
 #pragma warning disable 649
         [Serializable]
@@ -187,5 +189,6 @@ namespace InterfaceFerry
             };
             return "url(\"" + builder + "\")";
         }
+        // --- End of portion derived from com.unity.ui.figma.
     }
 }

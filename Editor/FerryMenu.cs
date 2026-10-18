@@ -13,6 +13,8 @@ namespace InterfaceFerry
     /// </summary>
     static class FerryMenu
     {
+        // --- Derived from com.unity.ui.figma 0.2.0-exp.1 (Editor/Window/FigmaConnectorWindow.cs: PipelineDescriptor, CopyToken).
+        // --- Copyright © 2026 Unity Technologies, Unity Companion License, not MIT: see Third Party Notices.md.
         [Serializable]
         class PipelineDescriptor
         {
@@ -54,6 +56,7 @@ namespace InterfaceFerry
             EditorApplication.update += ClearCopiedToken;
             Debug.Log("[InterfaceFerry] Token for port " + descriptor.port + " copied. Paste it into the plugin within 60 s.");
         }
+        // --- End of portion derived from com.unity.ui.figma.
 
         [MenuItem("Tools/InterfaceFerry/Clean Up Unused Images")]
         static void CleanupImages()
@@ -75,6 +78,8 @@ namespace InterfaceFerry
             EditorUtility.RevealInFinder(Path.Combine(info.resolvedPath, "FigmaPlugin~", "manifest.json"));
         }
 
+        // --- Derived from com.unity.ui.figma 0.2.0-exp.1 (Editor/Window/FigmaConnectorWindow.cs: ClearCopiedToken).
+        // --- Copyright © 2026 Unity Technologies, Unity Companion License, not MIT: see Third Party Notices.md.
         static void ClearCopiedToken()
         {
             if (EditorApplication.timeSinceStartup < s_ClearClipboardAt)
@@ -85,5 +90,6 @@ namespace InterfaceFerry
                 EditorGUIUtility.systemCopyBuffer = string.Empty;
             s_Copied = null;
         }
+        // --- End of portion derived from com.unity.ui.figma.
     }
 }

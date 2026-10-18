@@ -48,11 +48,14 @@ namespace InterfaceFerry
             return Path.Combine(s_StagingDir, key + ".png");
         }
 
+        // --- Derived from com.unity.ui.figma 0.2.0-exp.1 (Editor/Pipeline/FigmaPipelineCommands.cs: IsPng).
+        // --- Copyright © 2026 Unity Technologies, Unity Companion License, not MIT: see Third Party Notices.md.
         static bool IsPng(byte[] b)
         {
             return b.Length >= 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47
                 && b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A;
         }
+        // --- End of portion derived from com.unity.ui.figma.
 
         [CliCommand("ferry_status", "Identify this Editor to the InterfaceFerry Figma plugin.", Tags = new[] { k_Tag })]
         public static object Status()
@@ -72,6 +75,8 @@ namespace InterfaceFerry
                 throw new ArgumentException("image_key is invalid");
 
             // pass before decoding, so an oversized payload costs a length check rather than the allocation.
+            // --- Derived from com.unity.ui.figma 0.2.0-exp.1 (Editor/Pipeline/FigmaPipelineCommands.cs: size bound and base64 validation of StageImage).
+            // --- Copyright © 2026 Unity Technologies, Unity Companion License, not MIT: see Third Party Notices.md.
             if ((pngBase64 != null ? pngBase64.Length : 0) > k_MaxStagedImageBytes * 4L / 3L + 4)
                 throw new ArgumentException("png_base64 exceeds " + k_MaxStagedImageBytes + " bytes decoded");
 
@@ -86,6 +91,7 @@ namespace InterfaceFerry
             }
             if (bytes.Length == 0 || !IsPng(bytes))
                 throw new ArgumentException("png_base64 is not a PNG");
+            // --- End of portion derived from com.unity.ui.figma.
 
             Directory.CreateDirectory(s_StagingDir);
             File.WriteAllBytes(path, bytes);

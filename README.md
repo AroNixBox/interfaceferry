@@ -12,7 +12,7 @@ Every visible layer becomes a PNG (export scale 0.5x–4x), text stays text with
 ## Install
 `Packages/manifest.json`:
 ```json
-"com.aroboss.interfaceferry": "https://github.com/<you>/interfaceferry.git#v0.1.0"
+"com.aroboss.interfaceferry": "https://github.com/AroNixBox/interfaceferry.git#v0.2.0"
 ```
 
 ## Use
@@ -33,6 +33,7 @@ Re-pushing a screen overwrites it and removes PNGs it no longer uses.
 - Text with a gradient or image fill stays a PNG. Mixed styles inside one text use the first character's style (the plugin warns).
 
 ## How layers become images
+- **Whatever a clip cuts is exported with its parent.** A layer exported on its own is not cut at all, so when a clipping container cuts a child (past its edge or into a rounded corner, including the reach of a layer blur or drop shadow), that child goes into the container's PNG, where Figma cuts it, together with every sibling beneath it so the stacking stays right. Siblings above the topmost cut child stay separate elements; if the topmost child is cut, the container becomes one PNG. This applies to the pushed root too. Cuts are measured on the real outline (a circle near a rounded corner is not cut), wrappers that draw nothing are looked through, and a nested clip decides for what is inside it.
 - Leaves (vectors, shapes, boolean operations, containers holding a mask) render whole, own opacity baked in.
 - Containers render only what they draw themselves (fill, stroke, effects), children hidden; their opacity goes to USS so it applies to children as in Figma. Clip content becomes `overflow: hidden`.
 - Rotated or flipped layers are exported unrotated through a temporary clone, so the rotation is a USS transform and not baked into pixels.
@@ -42,11 +43,17 @@ Re-pushing a screen overwrites it and removes PNGs it no longer uses.
 - Design mode only (exports through temporary clones).
 - A container that clips content and also has a shadow clips its own shadow in Unity.
 - Blend modes are not carried over; hidden layers are skipped.
+- **Background blur** (frosted glass) is lost: it blurs what lies behind the layer, usually a sibling, which no PNG of the layer itself contains (SVG does not help, Unity's SVG importer has no filters). Options: bake the backdrop into the export (static backgrounds only), or USS `backdrop-filter`, which needs Unity 6000.6+.
+- If text lies at or below a cut layer, nothing is merged (text stays text): Unity then cuts to the square box, and the plugin warns.
+- Cut detection uses each layer's box, effects and corner radii, not its exact vector outline; an irregular shape inside a corner may be merged although Figma cuts nothing from it.
 - Two roots with the same name in one Figma file overwrite each other.
 
 ## Known issues
 - **Display P3 files shift colors.** In a Figma file set to Display P3 (File ▸ Color profile), PNGs export in P3 (`exportAsync` defaults to `colorProfile: 'DOCUMENT'`) and text colors are sent as raw P3 values; Unity reads both as sRGB, so colors look duller than in Figma. sRGB and legacy files are unaffected. Fix: export with `colorProfile: 'SRGB'` and convert text/shadow colors P3 → sRGB when `figma.root.documentColorProfile === 'DISPLAY_P3'`.
 - **Pushing edits the document.** Rotated layers, containers with their own fill/stroke/effects and fixed-height top/bottom-aligned text are exported through a temporary clone on the page (created and removed per layer). Originals and layout are never touched, but the clones are real multiplayer edits: the file counts as edited, and the pusher's undo stack gets a net-empty plugin step. Other users' undo history is unaffected.
+
+## Future improvements
+- **Drop `__raster` for leaves.** When a layer's PNG reaches past its box (outside strokes, shadows, blur), the image sits on a `__raster` child sized to the render bounds, because `background-image` always fills the element's own box. A layer without children does not need Figma's box: its element could take the render bounds itself (offset folded into its position, rotation included) and carry the PNG as its own background. `__raster` would then remain only for containers with children whose own pixels reach past their box.
 
 ## Wire protocol (schema 2)
 `POST http://localhost:<port>/api/exec`, `Authorization: Bearer <token>`, body `{ "command", "parameters" }`.

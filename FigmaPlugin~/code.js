@@ -30,6 +30,106 @@ function isLeaf(node) {
   return node.children.some((c) => c.isMask === true);
 }
 
+// How far a node's own pixels reach past its box. Figma's render bounds are already cut by the clipping
+// parent, so they cannot show what a clip removes; the effects themselves can.
+function effectReach(node) {
+  const reach = { l: 0, t: 0, r: 0, b: 0 };
+  for (const e of (Array.isArray(node.effects) ? node.effects : [])) {
+    if (!e || e.visible === false) continue;
+    if (e.type === 'LAYER_BLUR') {
+      reach.l = Math.max(reach.l, e.radius); reach.t = Math.max(reach.t, e.radius);
+      reach.r = Math.max(reach.r, e.radius); reach.b = Math.max(reach.b, e.radius);
+    } else if (e.type === 'DROP_SHADOW') {
+      const s = (e.radius || 0) + (e.spread || 0);
+      reach.l = Math.max(reach.l, s - e.offset.x); reach.r = Math.max(reach.r, s + e.offset.x);
+      reach.t = Math.max(reach.t, s - e.offset.y); reach.b = Math.max(reach.b, s + e.offset.y);
+    }
+  }
+  return reach;
+}
+
+function hasVisibleText(node) {
+  if (node.visible === false) return false;
+  if (node.type === 'TEXT') return true;
+  return 'children' in node && node.children.some(hasVisibleText);
+}
+
+// The radii of a node's own outline per corner (top-left, top-right, bottom-right, bottom-left), as [rx, ry],
+// so a circle near a rounded corner is not taken for the square around it.
+function outlineRadii(node) {
+  if (node.type === 'ELLIPSE') {
+    const r = [node.width / 2, node.height / 2];
+    return [r, r, r, r];
+  }
+  if ('topLeftRadius' in node)
+    return [node.topLeftRadius, node.topRightRadius, node.bottomRightRadius, node.bottomLeftRadius].map((r) => [r, r]);
+  return [[0, 0], [0, 0], [0, 0], [0, 0]];
+}
+
+// Whether a clip cuts a node's own pixels: they reach past the clip's edge, or into a rounded corner of it.
+// Measured on the box grown by the node's effects.
+function isCutBy(node, clipNode) {
+  const box = node.absoluteBoundingBox;
+  const clip = clipNode.absoluteBoundingBox;
+  if (!box || !clip) return false;
+  const tol = 0.5;
+  const e = effectReach(node);
+  const l = box.x - e.l, t = box.y - e.t, r = box.x + box.width + e.r, b = box.y + box.height + e.b;
+  if (l < clip.x - tol || t < clip.y - tol || r > clip.x + clip.width + tol || b > clip.y + clip.height + tol) return true;
+  if (!('topLeftRadius' in clipNode)) return false;
+
+  const clipRadii = [clipNode.topLeftRadius, clipNode.topRightRadius, clipNode.bottomRightRadius, clipNode.bottomLeftRadius];
+  const grow = Math.max(e.l, e.t, e.r, e.b);
+  const own = outlineRadii(node);
+  const dirs = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  for (let k = 0; k < 4; k++) {
+    const R = Math.min(clipRadii[k], clip.width / 2, clip.height / 2);
+    if (!(R > 0)) continue;
+    const [dx, dy] = dirs[k];
+    // The point of the node's outline furthest into this corner: on its own corner arc, at 45 degrees.
+    const rx = Math.min(own[k][0] + grow, (r - l) / 2), ry = Math.min(own[k][1] + grow, (b - t) / 2);
+    const px = (dx < 0 ? l : r) - dx * rx * (1 - Math.SQRT1_2);
+    const py = (dy < 0 ? t : b) - dy * ry * (1 - Math.SQRT1_2);
+    const cx = (dx < 0 ? clip.x : clip.x + clip.width) - dx * R;
+    const cy = (dy < 0 ? clip.y : clip.y + clip.height) - dy * R;
+    if ((px - cx) * dx > 0 && (py - cy) * dy > 0 && Math.hypot(px - cx, py - cy) > R + tol) return true;
+  }
+  return false;
+}
+
+// Whether anything drawn inside a child is cut by the container's clip. Wrappers that draw nothing are
+// looked through, and a nested clip ends the search: it cuts what is inside it before this one could.
+function cutsChild(container, child) {
+  const visit = (node) => {
+    if (node.visible === false) return false;
+    if (drawsItself(node) && isCutBy(node, container)) return true;
+    if (node.clipsContent === true || !('children' in node)) return false;
+    return node.children.some(visit);
+  };
+  return visit(child);
+}
+
+function drawsItself(node) {
+  return !hasChildren(node) || node.type === 'BOOLEAN_OPERATION' || hasOwnVisuals(node);
+}
+
+// How many of a clipping container's children, from the bottom, are exported into its own picture.
+// A child exported on its own is not cut at all, so whatever the clip cuts goes into the container's PNG,
+// where Figma cuts it, together with everything beneath it so the stacking stays right. Children above
+// the topmost cut one stay separate elements. Text stays text: a cut slice holding text is not merged.
+function cutSlice(node, ctx) {
+  if (node.clipsContent !== true || !hasChildren(node)) return 0;
+  let top = -1;
+  node.children.forEach((child, i) => { if (cutsChild(node, child)) top = i; });
+  if (top < 0) return 0;
+  if (node.children.slice(0, top + 1).some(hasVisibleText)) {
+    ctx.warnings.push(node.name + ': its clip cuts a layer, but text lies at or below it, so nothing is merged and Unity cuts to the box');
+    return 0;
+  }
+  ctx.flattened++;
+  return top + 1;
+}
+
 function anyVisible(paints) {
   return Array.isArray(paints) && paints.some((p) => p && p.visible !== false && p.opacity !== 0);
 }
@@ -57,10 +157,11 @@ function exportScale(bounds, scale) {
 }
 
 // Renders a node unrotated, so its rotation reaches Unity as a transform rather than baked into pixels.
-// 'leaf' renders the node whole, with its own opacity. 'own' renders only what a container draws itself:
-// children hidden, opacity 1, because Unity applies a container's opacity to its children as Figma does.
+// 'leaf' renders the node whole, with its own opacity. 'own' renders what a container draws itself plus its
+// bottom `keep` children (the cut slice): the rest hidden, opacity 1, because Unity applies a container's
+// opacity to its children as Figma does.
 // Direct export when nothing has to change; otherwise a clone on the page, rendered and removed.
-async function exportNode(node, mode, scale) {
+async function exportNode(node, mode, scale, keep) {
   const direct = mode === 'leaf' && isIdentity(node.absoluteTransform);
   let target = node;
   let temp = null;
@@ -73,7 +174,7 @@ async function exportNode(node, mode, scale) {
         temp.opacity = 1;
         // Hiding the children would shrink a hug-contents auto layout frame; without layout it keeps its size.
         if ('layoutMode' in temp && temp.layoutMode !== 'NONE') { try { temp.layoutMode = 'NONE'; } catch (e) { } }
-        for (const child of temp.children) { try { child.visible = false; } catch (e) { } }
+        temp.children.forEach((child, i) => { if (i >= (keep || 0)) { try { child.visible = false; } catch (e) { } } });
         if (Math.abs(temp.width - node.width) > 0.01 || Math.abs(temp.height - node.height) > 0.01) {
           try { temp.resize(Math.max(node.width, 0.01), Math.max(node.height, 0.01)); } catch (e) { }
         }
@@ -208,7 +309,8 @@ async function textInfo(node, ctx) {
 async function walk(node, parentIndex, out, ctx) {
   if (node.visible === false) return;
 
-  const leaf = isLeaf(node);
+  const slice = isLeaf(node) ? 0 : cutSlice(node, ctx);
+  const leaf = isLeaf(node) || slice === node.children.length;
   const entry = {
     id: node.id,
     name: node.name,
@@ -230,18 +332,19 @@ async function walk(node, parentIndex, out, ctx) {
     entry.opacity = typeof node.opacity === 'number' ? node.opacity : 1;
   }
 
-  const mode = text ? null : leaf ? (node.opacity === 0 ? null : 'leaf') : (hasOwnVisuals(node) ? 'own' : null);
+  const mode = text ? null : leaf ? (node.opacity === 0 ? null : 'leaf') : (slice > 0 || hasOwnVisuals(node) ? 'own' : null);
   if (mode) {
     ctx.done++;
     figma.ui.postMessage({ type: 'progress', message: 'Rendering ' + ctx.done + ' - ' + node.name });
-    const r = await exportNode(node, mode, ctx.scale);
+    const r = await exportNode(node, mode, ctx.scale, slice);
     if (r.bytes) entry.image = { key: stageImage(r.bytes, ctx), x: r.x, y: r.y, w: r.w, h: r.h };
     else if (r.error) ctx.warnings.push(node.name + ': ' + r.error);
   }
 
   const index = out.length;
   out.push(entry);
-  if (!leaf) for (const child of node.children) await walk(child, index, out, ctx);
+  // The cut slice is already in the container's picture; only the children above it are elements.
+  if (!leaf) for (const child of node.children.slice(slice)) await walk(child, index, out, ctx);
 }
 
 figma.ui.onmessage = async (msg) => {
@@ -271,10 +374,10 @@ figma.ui.onmessage = async (msg) => {
     const warnings = [];
     for (const root of figma.currentPage.selection) {
       const nodes = [];
-      const ctx = { scale, images: [], imagesByKey: new Set(), warnings, done: 0 };
+      const ctx = { scale, images: [], imagesByKey: new Set(), warnings, done: 0, flattened: 0 };
       await walk(root, -1, nodes, ctx);
       if (nodes.length > 0)
-        items.push({ payload: { schema: SCHEMA, fileName: figma.root.name, scale, nodes }, count: nodes.length, images: ctx.images });
+        items.push({ payload: { schema: SCHEMA, fileName: figma.root.name, scale, nodes }, count: nodes.length, images: ctx.images, flattened: ctx.flattened });
     }
     figma.ui.postMessage({ type: 'collected', items, warnings });
   }

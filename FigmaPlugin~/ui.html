@@ -197,7 +197,9 @@
 
       for (const f of failedUploads) notes.push('Upload failed: ' + f);
       const secs = ((performance.now() - started) / 1000).toFixed(1);
-      const head = 'Pushed ' + plural(items.length, 'root') + ' · ' + plural(nodes, 'node') + ' · ' + plural(imageTotal, 'image') + ' · ' + secs + ' s\n' + files.join('\n');
+      const flattened = items.reduce((n, it) => n + (it.flattened || 0), 0);
+      const head = 'Pushed ' + plural(items.length, 'root') + ' · ' + plural(nodes, 'node') + ' · ' + plural(imageTotal, 'image')
+        + (flattened ? ' · ' + flattened + ' merged for effects' : '') + ' · ' + secs + ' s\n' + files.join('\n');
       if (notes.length) setStatus(head + '\n\n' + plural(notes.length, 'note') + ':\n' + notes.slice(0, 5).join('\n'), 'warn');
       else setStatus(head, 'ok');
     }

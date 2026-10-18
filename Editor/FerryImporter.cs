@@ -270,7 +270,11 @@ namespace InterfaceFerry
                 return;
             var parent = Path.GetDirectoryName(assetFolder)?.Replace('\\', '/');
             EnsureFolder(parent);
-            AssetDatabase.CreateFolder(parent, Path.GetFileName(assetFolder));
+            // On disk but not imported yet: CreateFolder would add "<name> 1" next to it instead.
+            if (Directory.Exists(ProjectPath(assetFolder)))
+                AssetDatabase.ImportAsset(assetFolder, ImportAssetOptions.ForceSynchronousImport);
+            else
+                AssetDatabase.CreateFolder(parent, Path.GetFileName(assetFolder));
         }
 
         // Moves this push's staged PNGs into the screen's folder. A key already there is the same artwork,

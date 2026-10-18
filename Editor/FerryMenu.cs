@@ -55,6 +55,13 @@ namespace InterfaceFerry
             Debug.Log("[InterfaceFerry] Token for port " + descriptor.port + " copied. Paste it into the plugin within 60 s.");
         }
 
+        [MenuItem("Tools/InterfaceFerry/Clean Up Unused Images")]
+        static void CleanupImages()
+        {
+            var n = FerryImporter.CleanupImages(null);
+            Debug.Log("[InterfaceFerry] Clean up: " + n + " unreferenced image(s) removed.");
+        }
+
         [MenuItem("Tools/InterfaceFerry/Reveal Figma Plugin")]
         static void RevealPlugin()
         {

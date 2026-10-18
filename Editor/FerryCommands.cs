@@ -107,7 +107,15 @@ namespace InterfaceFerry
             return new { ok = true, missing };
         }
 
-        [CliCommand("ferry_import", "Build UXML + USS + PNGs under Assets/InterfaceFerry from a InterfaceFerry payload.",
+        [CliCommand("ferry_cleanup_images", "Delete the PNGs in a Figma file's Images folder that no asset in the project refers to any more; every Figma file's when file_name is empty.",
+            Tags = new[] { k_Tag })]
+        public static object CleanupImages(
+            [CliArg("file_name", "The Figma file name as the payload carries it; empty for all files.")] string fileName = null)
+        {
+            return new { ok = true, removed = FerryImporter.CleanupImages(fileName) };
+        }
+
+        [CliCommand("ferry_import", "Build UXML + USS + PNGs under Assets/InterfaceFerry from an InterfaceFerry payload.",
             Tags = new[] { k_Tag })]
         public static object Import(
             [CliArg("payload", "The raster payload, as a JSON object.", Required = true)] JObject payload)

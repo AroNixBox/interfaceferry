@@ -23,7 +23,7 @@ Output: `Assets/InterfaceFerry/<Figma file>/<Screen>.raster.uxml` + `.raster.uss
 One selected layer becomes a screen named after it. Several selected layers become **one** screen with them as siblings, in Figma's stacking order and at their positions relative to each other, under a root spanning them all, named after the selected layers joined with ` - ` in stacking order (capped at 100 characters, the rest counted as ` +N`).
 Re-pushing a screen overwrites it.
 
-**Images are shared per Figma file.** All screens of one Figma file use one `Images/` folder; a PNG is named by its content hash, so identical artwork exists once. The plugin asks Unity which hashes it already holds and uploads only the new ones; existing PNGs are not touched or re-imported. After every import and rebuild, PNGs in `Images/` that no asset in the project refers to any more (by Unity's dependency data: generated and hand-made USS, UXML, prefabs, scenes, materials) are deleted. Screens pushed before 0.2.0 keep their old `raster/<Screen>/` folder until they are pushed again, which moves their PNGs into `Images/`; `raster/` is removed once empty.
+**Images are shared per Figma file.** All screens of one Figma file use one `Images/` folder; a PNG is named by its content hash, so identical artwork exists once. The plugin asks Unity which hashes it already holds and uploads only the new ones; existing PNGs are not touched or re-imported. Cleaning up is its own step, `ferry_cleanup_images`: it deletes the PNGs in `Images/` that no asset in the project refers to any more (by Unity's dependency data: generated and hand-made USS, UXML, prefabs, scenes, materials). The plugin calls it after every push, a rebuild runs it once at the end, and Tools ▸ InterfaceFerry ▸ Clean Up Unused Images runs it for every Figma file. Screens pushed before 0.2.0 keep their old `raster/<Screen>/` folder until they are pushed again, which moves their PNGs into `Images/`; `raster/` is removed once empty.
 
 ## Text and fonts
 - TEXT layers arrive as `ui:Label` with characters (text case applied), size, color, alignment, letter spacing, line height, paragraph spacing, wrapping/truncation, underline/strikethrough and a drop shadow as `text-shadow`.
@@ -56,9 +56,10 @@ Re-pushing a screen overwrites it.
 - **Drop `__raster` for leaves.** When a layer's PNG reaches past its box (outside strokes, shadows, blur), the image sits on a `__raster` child sized to the render bounds, because `background-image` always fills the element's own box. A layer without children does not need Figma's box: its element could take the render bounds itself (offset folded into its position, rotation included) and carry the PNG as its own background. `__raster` would then remain only for containers with children whose own pixels reach past their box.
 
 ## Wire protocol (schema 2)
-`POST http://localhost:<port>/api/exec`, `Authorization: Bearer <token>`, body `{ "command", "parameters" }`.
+`POST http://localhost:<port>/api/exec`, `Authorization: Bearer <token>`, body `{ "command", "parameters" }`. A push runs `ferry_missing_images` → `ferry_stage_image` per missing PNG → `ferry_import` → `ferry_cleanup_images`; `ferry_status` runs on connect.
 - `ferry_status` → `{ interfaceFerry, schemas, project }`
 - `ferry_missing_images { file_name, image_keys[] }` → `{ missing[] }`, the keys the file's `Images/` folder does not hold yet
+- `ferry_cleanup_images { file_name? }` → `{ removed }`, deletes unreferenced PNGs of that file's `Images/` folder, or of every file's without `file_name`
 - `ferry_stage_image { image_key, png_base64 }` (PNG only, ≤16 MB)
 - `ferry_import { payload: { schema, fileName, scale, nodes[] } }`, node: `id, name, type, parentIndex, width, height, t` (Figma `absoluteTransform`, row-major 6 floats), `opacity`, `clip`, `image { key, x, y, w, h }`, `text { characters, family, style, weight, size, color, align, valign, autoResize, truncate, maxLines, letterSpacing, lineHeight, paragraphSpacing, decoration, contentHeight, shadow }`.
 

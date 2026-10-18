@@ -226,7 +226,6 @@ namespace InterfaceFerry
                 File.Delete(ProjectPath(legacyFolder) + ".meta");
             }
             DeleteIfEmpty(legacyRoot);
-            var removed = CollectUnreferenced(imageFolder);
             fonts.MarkBuilt();
 
             var notes = new List<string>();
@@ -237,11 +236,10 @@ namespace InterfaceFerry
                     + ": " + string.Join(", ", unmapped));
             foreach (var note in notes)
                 Debug.LogWarning("[InterfaceFerry] " + note);
-            Debug.Log("[InterfaceFerry] " + nodes.Length + " nodes, " + keys.Count + " images (" + fresh.Count + " new, "
-                + removed + " unreferenced removed) -> " + uxmlPath);
+            Debug.Log("[InterfaceFerry] " + nodes.Length + " nodes, " + keys.Count + " images (" + fresh.Count + " new) -> " + uxmlPath);
 
             return new { ok = true, uxml = uxmlPath, uss = ussPath, nodes = nodes.Length, images = keys.Count,
-                newImages = fresh.Count, removedImages = removed, notes };
+                newImages = fresh.Count, notes };
         }
 
         /// <summary>
@@ -263,7 +261,33 @@ namespace InterfaceFerry
                 Import(payload, null);
                 n++;
             }
+            CleanupImages(fileFolderName);
             return n;
+        }
+
+        /// <summary>
+        /// Deletes the PNGs in a Figma file's Images/ folder that nothing in the project refers to any more, or
+        /// in every Figma file's when <paramref name="fileFolderName"/> is empty. Separate from building a
+        /// screen: the folder belongs to all screens of the file, so this runs after a push, not inside it.
+        /// </summary>
+        public static int CleanupImages(string fileFolderName)
+        {
+            var folders = new List<string>();
+            if (!string.IsNullOrEmpty(fileFolderName))
+                folders.Add(OutputRoot + "/" + SafeName(fileFolderName, "Figma") + "/" + ImageFolderName);
+            else if (AssetDatabase.IsValidFolder(OutputRoot))
+                foreach (var file in AssetDatabase.GetSubFolders(OutputRoot))
+                    folders.Add(file + "/" + ImageFolderName);
+
+            var removed = 0;
+            foreach (var folder in folders)
+            {
+                var n = CollectUnreferenced(folder);
+                if (n > 0)
+                    Debug.Log("[InterfaceFerry] Removed " + n + " unreferenced image(s) from " + folder + ".");
+                removed += n;
+            }
+            return removed;
         }
 
         // Adds the push's fonts to the map, and names those still without a project font.

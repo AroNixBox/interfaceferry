@@ -208,11 +208,21 @@
         for (const n of (j.result.notes || [])) notes.push(n);
       }
 
+      // Its own step: the Images folder belongs to all screens of the Figma file, not to the one just built.
+      // A package without the command answers with an error, which only means nothing is cleaned up.
+      let removed = 0;
+      for (const fileName of new Set(items.map((it) => it.payload.fileName))) {
+        setStatus('Cleaning up unused images…');
+        const c = await exec(pair.port, pair.token, 'ferry_cleanup_images', { file_name: fileName });
+        if (c.unauthorized) { setConn('unauthorized'); throw new Error('Token rejected. Copy it again in Unity.'); }
+        if (c.ok && c.result) removed += c.result.removed || 0;
+      }
+
       for (const f of failedUploads) notes.push('Upload failed: ' + f);
       const secs = ((performance.now() - started) / 1000).toFixed(1);
       const flattened = items.reduce((n, it) => n + (it.flattened || 0), 0);
       const head = 'Pushed ' + plural(items.length, 'root') + ' · ' + plural(nodes, 'node') + ' · ' + plural(imageTotal, 'image')
-        + ' (' + uploaded + ' new)' + (flattened ? ' · ' + flattened + ' merged for effects' : '') + ' · ' + secs + ' s\n' + files.join('\n');
+        + ' (' + uploaded + ' new' + (removed ? ', ' + removed + ' unused removed' : '') + ')' + (flattened ? ' · ' + flattened + ' merged for effects' : '') + ' · ' + secs + ' s\n' + files.join('\n');
       if (notes.length) setStatus(head + '\n\n' + plural(notes.length, 'note') + ':\n' + notes.slice(0, 5).join('\n'), 'warn');
       else setStatus(head, 'ok');
     }

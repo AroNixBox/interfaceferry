@@ -134,7 +134,7 @@ namespace InterfaceFerry
     }
 
     /// <summary>
-    /// Writes one pushed root as &lt;Screen&gt;.raster.uxml + .uss. PNGs live in the Figma file's shared raster/
+    /// Writes one pushed root as &lt;Screen&gt;.raster.uxml + .uss. PNGs live in the Figma file's shared Images/
     /// folder, named by their content hash, so screens of one file share identical artwork.
     /// Every element is absolutely placed from Figma's transforms, so auto layout, constraints and the like
     /// are not translated: their effect arrives already resolved as position, rotation and scale.
@@ -142,6 +142,10 @@ namespace InterfaceFerry
     static class FerryImporter
     {
         internal const string OutputRoot = "Assets/InterfaceFerry";
+        // One folder of PNGs per Figma file, shared by all of its screens.
+        internal const string ImageFolderName = "Images";
+        // 0.1.0 kept every screen's PNGs in raster/<Screen>/; they move to Images/ on the screen's next build.
+        const string k_LegacyFolderName = "raster";
 
         // Below this a rotation or scale is float noise from Figma's matrix, not a design decision.
         const double k_Epsilon = 1e-4;
@@ -163,9 +167,9 @@ namespace InterfaceFerry
             var screenName = SafeName(nodes[0].name, "Screen");
 
             var folder = OutputRoot + "/" + fileName;
-            var imageFolder = folder + "/raster";
-            // Before 0.2.0 every screen had its own raster/<Screen>/; its PNGs move to the shared folder.
-            var legacyFolder = imageFolder + "/" + screenName;
+            var imageFolder = folder + "/" + ImageFolderName;
+            var legacyRoot = folder + "/" + k_LegacyFolderName;
+            var legacyFolder = legacyRoot + "/" + screenName;
             var uxmlPath = folder + "/" + screenName + ".raster.uxml";
             var ussPath = folder + "/" + screenName + ".raster.uss";
 
@@ -199,7 +203,7 @@ namespace InterfaceFerry
             var uxml = new StringBuilder();
             uxml.Append("<ui:UXML xmlns:ui=\"UnityEngine.UIElements\" editor-extension-mode=\"False\">\n");
             uxml.Append("    <Style src=\"").Append(Xml(screenName + ".raster.uss")).Append("\" />\n");
-            Emit(0, nodes, children, "raster/", uxml, uss, 1, fonts);
+            Emit(0, nodes, children, ImageFolderName + "/", uxml, uss, 1, fonts);
             uxml.Append("</ui:UXML>\n");
 
             File.WriteAllText(ProjectPath(ussPath), uss.ToString());
@@ -221,6 +225,7 @@ namespace InterfaceFerry
                 Directory.Delete(ProjectPath(legacyFolder), true);
                 File.Delete(ProjectPath(legacyFolder) + ".meta");
             }
+            DeleteIfEmpty(legacyRoot);
             var removed = CollectUnreferenced(imageFolder);
             fonts.MarkBuilt();
 
@@ -338,6 +343,19 @@ namespace InterfaceFerry
             return keys;
         }
 
+        // The old raster/ goes once the last screen has moved out of it.
+        static void DeleteIfEmpty(string assetFolder)
+        {
+            var dir = ProjectPath(assetFolder);
+            if (!Directory.Exists(dir) || Directory.EnumerateFileSystemEntries(dir).GetEnumerator().MoveNext())
+                return;
+            if (!AssetDatabase.IsValidFolder(assetFolder) || !AssetDatabase.DeleteAsset(assetFolder))
+            {
+                Directory.Delete(dir);
+                File.Delete(dir + ".meta");
+            }
+        }
+
         // Asset types that can point at a PNG: style sheets, UXML, prefabs, scenes, materials, other assets.
         static readonly HashSet<string> k_ReferencingExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -345,7 +363,7 @@ namespace InterfaceFerry
         };
 
         /// <summary>
-        /// Deletes the PNGs of a shared raster folder that nothing in the project refers to any more, by Unity's
+        /// Deletes the PNGs of a shared Images folder that nothing in the project refers to any more, by Unity's
         /// own dependency data, so a PNG reused in hand-made UI stays. Returns how many were removed.
         /// </summary>
         static int CollectUnreferenced(string imageFolder)

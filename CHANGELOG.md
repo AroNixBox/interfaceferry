@@ -1,7 +1,7 @@
 # Changelog
 
 ## [0.2.0] - 2026-10-18
-- Images are shared per Figma file: one `raster/` folder per file instead of one per screen, PNGs named by content hash. The plugin uploads only PNGs Unity does not hold yet (`ferry_missing_images`); existing ones are not re-imported. After every import, PNGs no asset in the project refers to are deleted. Screens from 0.1.0 move into the shared folder on their next push.
+- Images are shared per Figma file: one `Images/` folder per file instead of `raster/<Screen>/` per screen, PNGs named by content hash. The plugin uploads only PNGs Unity does not hold yet (`ferry_missing_images`); existing ones are not re-imported. After every import, PNGs no asset in the project refers to are deleted. Screens from 0.1.0 move into `Images/` on their next push, and the old `raster/` goes once empty.
 - Several selected layers are pushed as one screen with them as siblings (stacking order and relative positions kept) instead of one screen each, named after the selected layers joined with " - ".
 - Whatever a clip cuts is exported with its parent: the cut child and everything beneath it go into the clipping container's PNG, children above stay elements; also for the pushed root. Cuts are measured on box, effects and corner radii. The plugin reports how many containers were merged.
 - An import folder that exists on disk but is not yet imported is imported instead of duplicated as "<name> 1".

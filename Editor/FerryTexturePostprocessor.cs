@@ -10,7 +10,10 @@ namespace InterfaceFerry
     {
         void OnPreprocessTexture()
         {
-            if (!assetPath.StartsWith(FerryImporter.OutputRoot + "/") || !assetPath.Contains("/raster/"))
+            if (!assetPath.StartsWith(FerryImporter.OutputRoot + "/"))
+                return;
+            // raster/ is 0.1.0's folder; its PNGs keep these settings until they move to Images/.
+            if (!assetPath.Contains("/" + FerryImporter.ImageFolderName + "/") && !assetPath.Contains("/raster/"))
                 return;
 
             var importer = (TextureImporter)assetImporter;

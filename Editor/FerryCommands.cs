@@ -92,14 +92,14 @@ namespace InterfaceFerry
             return new { ok = true, bytes = bytes.Length };
         }
 
-        [CliCommand("ferry_missing_images", "Of the given image keys, the ones a Figma file's shared raster folder does not hold yet; the plugin uploads only those.",
+        [CliCommand("ferry_missing_images", "Of the given image keys, the ones a Figma file's shared Images folder does not hold yet; the plugin uploads only those.",
             // Plain file IO, no Unity API, like staging.
             MainThreadRequired = false, Tags = new[] { k_Tag })]
         public static object MissingImages(
             [CliArg("file_name", "The Figma file name as the payload carries it.", Required = true)] string fileName,
             [CliArg("image_keys", "The keys of the push's PNGs.", Required = true)] string[] imageKeys)
         {
-            var folder = Path.Combine(s_ProjectRoot ?? "", FerryImporter.OutputRoot, FerryImporter.SafeName(fileName, "Figma"), "raster");
+            var folder = Path.Combine(s_ProjectRoot ?? "", FerryImporter.OutputRoot, FerryImporter.SafeName(fileName, "Figma"), FerryImporter.ImageFolderName);
             var missing = new List<string>();
             foreach (var key in imageKeys ?? Array.Empty<string>())
                 if (k_Key.IsMatch(key ?? "") && !File.Exists(Path.Combine(folder, key + ".png")))

@@ -5,6 +5,7 @@ using System.IO;
 using System.Security;
 using System.Text;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json;
 using UnityEditor;
 using UnityEngine;
 
@@ -33,10 +34,48 @@ namespace InterfaceFerry
         public float height;
         // Figma's absoluteTransform, row-major: [m00, m01, m02, m10, m11, m12].
         public float[] t;
-        // Containers only. A leaf's own opacity is baked into its PNG.
+        // Containers and text only. Any other leaf's own opacity is baked into its PNG.
         public float opacity = 1f;
         public bool clip;
         public FerryImage image;
+        public FerryText text;
+    }
+
+    /// <summary>
+    /// A TEXT layer USS can draw. Spacings arrive in pixels and the characters with Figma's text case applied.
+    /// </summary>
+    [Serializable]
+    class FerryText
+    {
+        public string characters;
+        public string family;
+        public string style;
+        public float weight = 400;
+        public float size = 12;
+        // sRGB 0..1, alpha already multiplied by the fill's opacity.
+        public float[] color;
+        public string align;
+        public string valign;
+        public string autoResize;
+        public bool truncate;
+        public int maxLines;
+        public float letterSpacing;
+        // 0 for Figma's auto line height, which is the font's own, as in Unity.
+        public float lineHeight;
+        public float paragraphSpacing;
+        public string decoration;
+        // Height of the lines themselves; null when the plugin could not measure it (fonts missing in Figma).
+        public float? contentHeight;
+        public FerryShadow shadow;
+    }
+
+    [Serializable]
+    class FerryShadow
+    {
+        public float x;
+        public float y;
+        public float blur;
+        public float[] color;
     }
 
     [Serializable]
@@ -110,7 +149,13 @@ namespace InterfaceFerry
 
         static readonly Regex k_UnsafeFileChars = new Regex(@"[^\p{L}\p{N} _\-\.]");
 
-        public static object Import(FerryPayload payload)
+        // The last payload per screen, so a changed font mapping can rebuild screens without a re-push.
+        static string PayloadDir => Path.Combine(ProjectPath("Library"), "InterfaceFerry", "payloads");
+
+        /// <summary>
+        /// Builds one pushed root. <paramref name="json"/> is the payload as sent, kept for <see cref="RebuildFile"/>.
+        /// </summary>
+        public static object Import(FerryPayload payload, string json)
         {
             var nodes = payload.nodes;
             var fileName = SafeName(payload.fileName, "Figma");
@@ -121,7 +166,17 @@ namespace InterfaceFerry
             var uxmlPath = folder + "/" + screenName + ".raster.uxml";
             var ussPath = folder + "/" + screenName + ".raster.uss";
 
-            Directory.CreateDirectory(ProjectPath(imageFolder));
+            // Through the AssetDatabase, not only on disk: the font map is an asset and needs a known folder.
+            EnsureFolder(folder);
+            if (json != null)
+            {
+                var saved = Path.Combine(PayloadDir, fileName, screenName + ".json");
+                Directory.CreateDirectory(Path.GetDirectoryName(saved));
+                File.WriteAllText(saved, json);
+            }
+
+            var fonts = FerryFontMap.LoadOrCreate(folder, fileName);
+            var unmapped = MapFonts(nodes, fonts);
 
             var missing = new List<string>();
             var keys = PromoteImages(nodes, imageFolder, missing);
@@ -141,7 +196,7 @@ namespace InterfaceFerry
             var uxml = new StringBuilder();
             uxml.Append("<ui:UXML xmlns:ui=\"UnityEngine.UIElements\" editor-extension-mode=\"False\">\n");
             uxml.Append("    <Style src=\"").Append(Xml(screenName + ".raster.uss")).Append("\" />\n");
-            Emit(0, nodes, children, "raster/" + screenName + "/", uxml, uss, 1);
+            Emit(0, nodes, children, "raster/" + screenName + "/", uxml, uss, 1, fonts);
             uxml.Append("</ui:UXML>\n");
 
             File.WriteAllText(ProjectPath(ussPath), uss.ToString());
@@ -153,15 +208,69 @@ namespace InterfaceFerry
             PruneStale(imageFolder, keys);
             AssetDatabase.ImportAsset(ussPath, ImportAssetOptions.ForceSynchronousImport);
             AssetDatabase.ImportAsset(uxmlPath, ImportAssetOptions.ForceSynchronousImport);
+            fonts.MarkBuilt();
 
             var notes = new List<string>();
             if (missing.Count > 0)
                 notes.Add(missing.Count + " image(s) were not uploaded: " + string.Join(", ", missing));
+            if (unmapped.Count > 0)
+                notes.Add(unmapped.Count + " font(s) use Unity's default font, map them in " + AssetDatabase.GetAssetPath(fonts)
+                    + ": " + string.Join(", ", unmapped));
             foreach (var note in notes)
                 Debug.LogWarning("[InterfaceFerry] " + note);
             Debug.Log("[InterfaceFerry] " + nodes.Length + " nodes, " + keys.Count + " images -> " + uxmlPath);
 
             return new { ok = true, uxml = uxmlPath, uss = ussPath, nodes = nodes.Length, images = keys.Count, notes };
+        }
+
+        /// <summary>
+        /// Re-runs the last push of every screen of one Figma file, by its import folder's name, against the
+        /// current font map. Images are already in place.
+        /// </summary>
+        public static int RebuildFile(string fileFolderName)
+        {
+            var dir = Path.Combine(PayloadDir, fileFolderName ?? "");
+            if (string.IsNullOrEmpty(fileFolderName) || !Directory.Exists(dir))
+                return 0;
+            var n = 0;
+            foreach (var path in Directory.GetFiles(dir, "*.json"))
+            {
+                var json = File.ReadAllText(path);
+                var payload = JsonConvert.DeserializeObject<FerryPayload>(json);
+                if (payload?.nodes == null || payload.nodes.Length == 0 || payload.schema != FerryCommands.Schema)
+                    continue;
+                Import(payload, null);
+                n++;
+            }
+            return n;
+        }
+
+        // Adds the push's fonts to the map, and names those still without a project font.
+        static List<string> MapFonts(FerryNode[] nodes, FerryFontMap fonts)
+        {
+            var used = new List<(string, string)>();
+            foreach (var node in nodes)
+                if (node.text != null)
+                    used.Add((node.text.family, node.text.style));
+            fonts.EnsureEntries(used);
+
+            var unmapped = new List<string>();
+            foreach (var (family, style) in used)
+            {
+                var label = FerryFontMap.Required(family, style);
+                if (fonts.Resolve(family, style) == null && !unmapped.Contains(label))
+                    unmapped.Add(label);
+            }
+            return unmapped;
+        }
+
+        static void EnsureFolder(string assetFolder)
+        {
+            if (AssetDatabase.IsValidFolder(assetFolder))
+                return;
+            var parent = Path.GetDirectoryName(assetFolder)?.Replace('\\', '/');
+            EnsureFolder(parent);
+            AssetDatabase.CreateFolder(parent, Path.GetFileName(assetFolder));
         }
 
         // Moves this push's staged PNGs into the screen's folder. A key already there is the same artwork,
@@ -184,6 +293,7 @@ namespace InterfaceFerry
                 var staged = FerryCommands.StagedPath(key);
                 if (staged != null && File.Exists(staged))
                 {
+                    Directory.CreateDirectory(ProjectPath(imageFolder));
                     File.Copy(staged, target, true);
                     File.Delete(staged);
                 }
@@ -200,6 +310,9 @@ namespace InterfaceFerry
 
         static void PruneStale(string imageFolder, HashSet<string> keys)
         {
+            // A text-only screen never gets an image folder.
+            if (!AssetDatabase.IsValidFolder(imageFolder))
+                return;
             foreach (var guid in AssetDatabase.FindAssets("t:Texture2D", new[] { imageFolder }))
             {
                 var path = AssetDatabase.GUIDToAssetPath(guid);
@@ -211,7 +324,7 @@ namespace InterfaceFerry
         }
 
         static void Emit(int index, FerryNode[] nodes, List<int>[] children, string imageUrlBase,
-            StringBuilder uxml, StringBuilder uss, int depth)
+            StringBuilder uxml, StringBuilder uss, int depth, FerryFontMap fonts)
         {
             var node = nodes[index];
             var cls = ClassOf(node.id);
@@ -240,6 +353,8 @@ namespace InterfaceFerry
             var ownElement = image != null && !FillsBox(image, node);
             if (image != null && !ownElement)
                 AppendBackground(uss, imageUrlBase + image.key + ".png");
+            if (node.text != null)
+                AppendText(uss, node, fonts);
             uss.Append("}\n");
 
             if (ownElement)
@@ -252,6 +367,15 @@ namespace InterfaceFerry
                 Prop(uss, "height", Px(image.h));
                 AppendBackground(uss, imageUrlBase + image.key + ".png");
                 uss.Append("}\n");
+            }
+
+            if (node.text != null)
+            {
+                var rich = RichText(node.text, out var text);
+                uxml.Append(indent).Append("<ui:Label name=\"").Append(Xml(node.name))
+                    .Append("\" class=\"").Append(cls).Append("\" text=\"").Append(XmlAttr(text))
+                    .Append("\" enable-rich-text=\"").Append(rich ? "true" : "false").Append("\" />\n");
+                return;
             }
 
             uxml.Append(indent).Append("<ui:VisualElement name=\"").Append(Xml(node.name))
@@ -269,7 +393,7 @@ namespace InterfaceFerry
                 uxml.Append(indent).Append("    <ui:VisualElement name=\"__raster\" class=\"").Append(cls)
                     .Append("__img\" picking-mode=\"Ignore\" />\n");
             foreach (var child in kids)
-                Emit(child, nodes, children, imageUrlBase, uxml, uss, depth + 1);
+                Emit(child, nodes, children, imageUrlBase, uxml, uss, depth + 1, fonts);
             uxml.Append(indent).Append("</ui:VisualElement>\n");
         }
 
@@ -301,6 +425,102 @@ namespace InterfaceFerry
                 Prop(uss, "rotate", Num(angle) + "deg");
             if (scaled)
                 Prop(uss, "scale", Num(sx) + " " + Num(sy));
+        }
+
+        // The Label fills the Figma text box, so position and transforms stay those of the box. Inside it, the
+        // lines are centred on a band as tall as Figma's lines: Figma pads the first line by half the leading,
+        // Unity does not, and centring a block of Figma's height puts that same half above it.
+        static void AppendText(StringBuilder uss, FerryNode node, FerryFontMap fonts)
+        {
+            var t = node.text;
+            Prop(uss, "margin", "0");
+            Prop(uss, "border-width", "0");
+
+            var vertical = "middle";
+            float padTop = 0, padBottom = 0;
+            var grows = t.autoResize == "HEIGHT" || t.autoResize == "WIDTH_AND_HEIGHT";
+            if (!grows && t.valign != "CENTER")
+            {
+                var content = t.contentHeight ?? -1f;
+                if (content < 0 || content > node.height + k_BoundsTolerance)
+                    vertical = t.valign == "BOTTOM" ? "lower" : "upper"; // unmeasured or overflowing: Unity's own anchor
+                else if (t.valign == "BOTTOM")
+                    padTop = node.height - content;
+                else
+                    padBottom = node.height - content;
+            }
+            Prop(uss, "padding", Px(padTop) + " 0 " + Px(padBottom) + " 0");
+            Prop(uss, "-unity-text-align", vertical + "-" + Horizontal(t.align));
+
+            Prop(uss, "font-size", Px(t.size));
+            Prop(uss, "color", Rgba(t.color));
+            var font = fonts.Resolve(t.family, t.style);
+            if (font != null)
+                Prop(uss, "-unity-font-definition", FerryFontMap.MakeAssetUrl(font));
+            // A mapped font already is that style; synthesising bold on it would double it. Only Unity's
+            // default font, standing in for an unmapped one, gets weight and italics synthesised.
+            var bold = font == null && t.weight >= 600;
+            var italic = font == null && (t.style ?? "").IndexOf("italic", StringComparison.OrdinalIgnoreCase) >= 0;
+            Prop(uss, "-unity-font-style", bold && italic ? "bold-and-italic" : bold ? "bold" : italic ? "italic" : "normal");
+            if (Math.Abs(t.letterSpacing) > k_Epsilon)
+                Prop(uss, "letter-spacing", Px(t.letterSpacing));
+            if (t.paragraphSpacing > k_Epsilon)
+                Prop(uss, "-unity-paragraph-spacing", Px(t.paragraphSpacing));
+
+            var singleLine = t.autoResize == "WIDTH_AND_HEIGHT" || (t.truncate && t.maxLines == 1);
+            Prop(uss, "white-space", singleLine ? "nowrap" : "normal");
+            if (t.truncate)
+            {
+                Prop(uss, "overflow", "hidden");
+                Prop(uss, "text-overflow", "ellipsis");
+            }
+            if (t.shadow != null)
+                Prop(uss, "text-shadow", Px(t.shadow.x) + " " + Px(t.shadow.y) + " " + Px(t.shadow.blur) + " " + Rgba(t.shadow.color));
+        }
+
+        static string Horizontal(string align)
+        {
+            if (align == "CENTER")
+                return "center";
+            return align == "RIGHT" ? "right" : "left"; // USS cannot justify
+        }
+
+        // Rich text only where USS falls short: line height and decoration. The characters themselves go in a
+        // noparse block, so a "<" typed in Figma stays a "<".
+        static bool RichText(FerryText t, out string text)
+        {
+            var characters = (t.characters ?? "").Replace("\r", "");
+            var underline = t.decoration == "UNDERLINE";
+            var strike = t.decoration == "STRIKETHROUGH";
+            if (t.lineHeight <= k_Epsilon && !underline && !strike)
+            {
+                text = characters;
+                return false;
+            }
+
+            var sb = new StringBuilder();
+            if (t.lineHeight > k_Epsilon)
+                sb.Append("<line-height=").Append(Px(t.lineHeight)).Append('>');
+            if (underline)
+                sb.Append("<u>");
+            if (strike)
+                sb.Append("<s>");
+            sb.Append("<noparse>").Append(characters.Replace("</noparse>", "<\u200B/noparse>")).Append("</noparse>");
+            if (strike)
+                sb.Append("</s>");
+            if (underline)
+                sb.Append("</u>");
+            text = sb.ToString();
+            return true;
+        }
+
+        static string Rgba(float[] c)
+        {
+            if (c == null || c.Length < 3)
+                return "rgba(0, 0, 0, 1)";
+            int Channel(float v) => Mathf.Clamp(Mathf.RoundToInt(v * 255f), 0, 255);
+            var a = c.Length > 3 ? Mathf.Clamp01(c[3]) : 1f;
+            return "rgba(" + Channel(c[0]) + ", " + Channel(c[1]) + ", " + Channel(c[2]) + ", " + Num(a) + ")";
         }
 
         static void AppendBackground(StringBuilder uss, string url)
@@ -345,6 +565,9 @@ namespace InterfaceFerry
         }
 
         static string Xml(string s) => SecurityElement.Escape(s ?? "");
+
+        // An attribute value turns a raw line break into a space when parsed, so breaks travel as references.
+        static string XmlAttr(string s) => Xml(s).Replace("\n", "&#10;").Replace("\t", "&#9;");
 
         static string ProjectPath(string assetPath)
         {

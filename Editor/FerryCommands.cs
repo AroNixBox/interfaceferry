@@ -15,7 +15,7 @@ namespace InterfaceFerry
     static class FerryCommands
     {
         const string k_Tag = "interfaceferry";
-        internal const int Schema = 1;
+        internal const int Schema = 2;
 
         // Same cap as the connector's figma_stage_image; Pipeline's own body cap (32 MB) is above it.
         const int k_MaxStagedImageBytes = 16 * 1024 * 1024;
@@ -103,7 +103,7 @@ namespace InterfaceFerry
             if (data.schema != Schema)
                 return new { ok = false, schemaMismatch = true, error = "schema " + data.schema + " is not supported" };
 
-            return FerryImporter.Import(data);
+            return FerryImporter.Import(data, payload.ToString(Newtonsoft.Json.Formatting.None));
         }
     }
 }

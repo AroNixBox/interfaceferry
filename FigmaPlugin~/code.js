@@ -1,8 +1,8 @@
-// InterfaceFerry: one way, Figma -> Unity. Every visible layer of the selection becomes a PNG, and the
-// tree travels with its absolute transforms so Unity can place each PNG exactly where Figma draws it.
+// InterfaceFerry: one way, Figma -> Unity. Every visible layer of the selection becomes a PNG, text stays
+// text, and the tree travels with its absolute transforms so Unity can place each one exactly where Figma draws it.
 // Transport and pairing are the UI Toolkit Connector's (see Assets/Reference), the payload is our own.
 
-const SCHEMA = 1;
+const SCHEMA = 2;
 // Longest side of one export in pixels; Unity imports up to 16384, Figma gets slow well before that.
 const MAX_EXPORT_PX = 8192;
 // Where temporary clones are rendered, far away from anything the user is looking at.
@@ -116,6 +116,95 @@ function stageImage(bytes, ctx) {
   return key;
 }
 
+// A property that differs across the text is figma.mixed; the first character's value stands for all of it.
+function firstOf(node, prop, rangeGetter) {
+  const v = node[prop];
+  if (v !== figma.mixed) return { value: v, mixed: false };
+  try { return { value: node[rangeGetter](0, 1), mixed: true }; } catch (e) { return { value: null, mixed: true }; }
+}
+
+function applyTextCase(s, textCase) {
+  if (textCase === 'UPPER') return s.toUpperCase();
+  if (textCase === 'LOWER') return s.toLowerCase();
+  if (textCase === 'TITLE') return s.replace(/(^|\s)(\S)/g, (m, sep, c) => sep + c.toUpperCase());
+  return s;
+}
+
+// USS has no line-height and no text-transform, so both travel resolved: pixels, and the characters as shown.
+function toPx(spacing, fontSize) {
+  if (!spacing || spacing.unit === 'AUTO') return 0;
+  return spacing.unit === 'PERCENT' ? spacing.value * fontSize / 100 : spacing.value;
+}
+
+// Height of the lines themselves, for a box of fixed height: Unity has to know where they sit inside it.
+// Measured on a clone set to grow with its text, which needs the fonts loaded to touch it at all.
+async function contentHeight(node) {
+  if (node.textAutoResize !== 'NONE' && node.textAutoResize !== 'TRUNCATE') return node.height;
+  if (node.textAlignVertical === 'CENTER') return node.height;
+  let temp = null;
+  try {
+    for (const f of node.getRangeAllFontNames(0, node.characters.length)) await figma.loadFontAsync(f);
+    temp = node.clone();
+    figma.currentPage.appendChild(temp);
+    temp.relativeTransform = [[1, 0, SCRATCH], [0, 1, SCRATCH]];
+    if ('textTruncation' in temp) temp.textTruncation = 'DISABLED';
+    temp.textAutoResize = 'HEIGHT';
+    return temp.height;
+  } catch (e) {
+    return null;
+  } finally {
+    if (temp) { try { temp.remove(); } catch (e) { } }
+  }
+}
+
+// Text that USS can draw travels as text; null when it cannot (gradient or image fill), so it stays a PNG.
+async function textInfo(node, ctx) {
+  const fills = firstOf(node, 'fills', 'getRangeFills');
+  const visible = (fills.value || []).filter((p) => p && p.visible !== false && p.opacity !== 0);
+  if (visible.length > 1 || (visible.length === 1 && visible[0].type !== 'SOLID')) return null;
+
+  const font = firstOf(node, 'fontName', 'getRangeFontName');
+  const size = firstOf(node, 'fontSize', 'getRangeFontSize');
+  const weight = firstOf(node, 'fontWeight', 'getRangeFontWeight');
+  const letter = firstOf(node, 'letterSpacing', 'getRangeLetterSpacing');
+  const line = firstOf(node, 'lineHeight', 'getRangeLineHeight');
+  const decoration = firstOf(node, 'textDecoration', 'getRangeTextDecoration');
+  const textCase = firstOf(node, 'textCase', 'getRangeTextCase');
+  if ([fills, font, size, weight, letter, line, decoration, textCase].some((p) => p.mixed))
+    ctx.warnings.push(node.name + ': mixed text styles, the first character\'s style is used');
+
+  const fontSize = typeof size.value === 'number' ? size.value : 12;
+  const paint = visible[0];
+  const color = paint
+    ? [paint.color.r, paint.color.g, paint.color.b, paint.opacity === undefined ? 1 : paint.opacity]
+    : [0, 0, 0, 0];
+  const shadow = Array.isArray(node.effects)
+    ? node.effects.find((e) => e && e.visible !== false && e.type === 'DROP_SHADOW') : null;
+
+  // Figma's soft line break (shift+enter) is U+2028; Unity only breaks on \n.
+  const characters = applyTextCase(node.characters, textCase.value).replace(/\u2028/g, '\n');
+  return {
+    characters,
+    family: font.value ? font.value.family : '',
+    style: font.value ? font.value.style : '',
+    weight: typeof weight.value === 'number' ? weight.value : 400,
+    size: fontSize,
+    color,
+    align: node.textAlignHorizontal,
+    valign: node.textAlignVertical,
+    autoResize: node.textAutoResize,
+    truncate: node.textTruncation === 'ENDING',
+    maxLines: typeof node.maxLines === 'number' ? node.maxLines : 0,
+    letterSpacing: toPx(letter.value, fontSize),
+    lineHeight: toPx(line.value, fontSize),
+    paragraphSpacing: typeof node.paragraphSpacing === 'number' ? node.paragraphSpacing : 0,
+    decoration: decoration.value || 'NONE',
+    contentHeight: await contentHeight(node),
+    ...(shadow ? { shadow: { x: shadow.offset.x, y: shadow.offset.y, blur: shadow.radius,
+      color: [shadow.color.r, shadow.color.g, shadow.color.b, shadow.color.a] } } : {})
+  };
+}
+
 async function walk(node, parentIndex, out, ctx) {
   if (node.visible === false) return;
 
@@ -134,7 +223,14 @@ async function walk(node, parentIndex, out, ctx) {
     entry.clip = node.clipsContent === true;
   }
 
-  const mode = leaf ? (node.opacity === 0 ? null : 'leaf') : (hasOwnVisuals(node) ? 'own' : null);
+  // A text's opacity is not baked into pixels here, so it travels like a container's.
+  const text = node.type === 'TEXT' ? await textInfo(node, ctx) : null;
+  if (text) {
+    entry.text = text;
+    entry.opacity = typeof node.opacity === 'number' ? node.opacity : 1;
+  }
+
+  const mode = text ? null : leaf ? (node.opacity === 0 ? null : 'leaf') : (hasOwnVisuals(node) ? 'own' : null);
   if (mode) {
     ctx.done++;
     figma.ui.postMessage({ type: 'progress', message: 'Rendering ' + ctx.done + ' - ' + node.name });

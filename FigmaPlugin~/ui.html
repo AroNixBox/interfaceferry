@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: Inter, system-ui, sans-serif; font-size: 11px; margin: 0; padding: 12px;
+      color: var(--figma-color-text, #1a1a1a); background: var(--figma-color-bg, #fff);
+    }
+    #conn { display: inline-flex; align-items: center; gap: 4px; color: var(--figma-color-text-secondary, #555); }
+    #conn::before { content: "\25CF"; font-size: 9px; color: var(--figma-color-icon-disabled, #b3b3b3); }
+    #conn.connected::before { color: var(--figma-color-icon-success, #14ae5c); }
+    #conn.searching::before { color: var(--figma-color-icon-warning, #d9a000); }
+    #conn.disconnected::before, #conn.unauthorized::before { color: var(--figma-color-icon-danger, #d12f2f); }
+    label { display: block; margin: 12px 0 4px; font-weight: 600; }
+    .hint { margin: 4px 0 0; font-size: 10px; line-height: 1.4; color: var(--figma-color-text-secondary, #777); }
+    #selInfo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    input, select {
+      width: 100%; padding: 6px; font: inherit;
+      border: 1px solid var(--figma-color-border, #ccc); border-radius: 4px;
+      color: var(--figma-color-text, #1a1a1a); background: var(--figma-color-bg, #fff);
+    }
+    .row { display: flex; gap: 6px; align-items: center; }
+    .row input { flex: 1; }
+    .row button { width: auto; margin-top: 0; white-space: nowrap; }
+    button {
+      margin-top: 10px; padding: 8px 10px; border: none; border-radius: 6px; width: 100%;
+      font: inherit; font-weight: 600; cursor: pointer;
+      background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff);
+    }
+    button.secondary { background: var(--figma-color-bg-secondary, #e6e6e6); color: var(--figma-color-text, #333); }
+    button:disabled { opacity: .5; cursor: default; }
+    #status {
+      margin-top: 12px; padding: 8px 10px; border-radius: 6px; min-height: 32px; line-height: 16px;
+      white-space: pre-wrap; border: 1px solid transparent;
+      background: var(--figma-color-bg-secondary, #f5f5f5); color: var(--figma-color-text-secondary, #777);
+    }
+    #status.ok { color: var(--figma-color-text-success, #157f3b); background: var(--figma-color-bg-success-tertiary, #e8f5ec); border-color: var(--figma-color-border-success, #9fd7b3); }
+    #status.warn { color: var(--figma-color-text-warning, #9a6700); background: var(--figma-color-bg-warning-tertiary, #fff5d6); border-color: var(--figma-color-border-warning, #f0c55a); }
+    #status.err { color: var(--figma-color-text-danger, #d12f2f); background: var(--figma-color-bg-danger-tertiary, #fdecec); border-color: var(--figma-color-border-danger, #f2a2a2); }
+  </style>
+</head>
+<body>
+  <span id="conn" class="disconnected"><span id="connText">Not connected</span></span>
+
+  <label for="token">Pipeline token</label>
+  <div class="row">
+    <input id="token" type="password" placeholder="port:token from Unity" autocomplete="off" spellcheck="false" />
+    <button id="connect" class="secondary">Connect</button>
+  </div>
+  <p class="hint">In Unity: Tools &#9656; InterfaceFerry &#9656; Copy Pipeline Token (or Copy token in the UI Toolkit Connector window). It changes when the Editor restarts.</p>
+
+  <label for="scale">Export scale</label>
+  <select id="scale">
+    <option value="0.5">0.5x</option>
+    <option value="1">1x</option>
+    <option value="1.5">1.5x</option>
+    <option value="2" selected>2x</option>
+    <option value="3">3x</option>
+    <option value="4">4x</option>
+  </select>
+  <p class="hint">PNG resolution only. Sizes and positions in Unity stay in Figma pixels.</p>
+
+  <label>Push to Unity</label>
+  <p id="selInfo" class="hint">Select layer(s) in Figma, then push.</p>
+  <button id="push" disabled>Ferry selection</button>
+
+  <div id="status">Paste the token, then press Connect.</div>
+
+  <script>
+    // Transport as in the UI Toolkit Connector's ui.html: Pipeline's /api/exec with its bearer token.
+    const PORT_MIN = 7800, PORT_MAX = 7849;
+    const base = (p) => 'http://localhost:' + p;
+
+    function toBase64(bytes) {
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 0x8000)
+        s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      return btoa(s);
+    }
+
+    async function exec(port, token, command, parameters) {
+      const r = await fetch(base(port) + '/api/exec', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, parameters })
+      });
+      if (r.status === 401) return { unauthorized: true };
+      let j = null;
+      try { j = await r.json(); } catch (e) { }
+      if (!r.ok || !j || !j.success)
+        return { httpError: r.status, detail: j && (j.errorDetails || j.error) };
+      return { ok: true, result: j.result };
+    }
+
+    function splitPairing(raw) {
+      const i = (raw || '').indexOf(':');
+      if (i <= 0) return null;
+      const port = Number(raw.slice(0, i));
+      const token = raw.slice(i + 1).trim();
+      return port >= PORT_MIN && port <= PORT_MAX && token ? { port, token } : null;
+    }
+
+    const tokenEl = document.getElementById('token');
+    const scaleEl = document.getElementById('scale');
+    const pushBtn = document.getElementById('push');
+    const connectBtn = document.getElementById('connect');
+    const connEl = document.getElementById('conn');
+    const connTextEl = document.getElementById('connText');
+    const selInfoEl = document.getElementById('selInfo');
+    const statusEl = document.getElementById('status');
+
+    let pair = null;
+    let connected = false;
+    let selCount = 0;
+    let busy = false;
+
+    function setStatus(message, cls) { statusEl.className = cls || ''; statusEl.textContent = message; }
+    function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
+    function setConn(state, project) {
+      connected = state === 'connected';
+      connEl.className = state;
+      connTextEl.textContent = connected ? 'Connected to ' + (project || 'Unity') + ' on port ' + pair.port
+        : state === 'searching' ? 'Connecting…'
+        : state === 'unauthorized' ? 'Token rejected'
+        : 'Not connected';
+      refresh();
+    }
+
+    function refresh() {
+      pushBtn.disabled = !connected || !selCount || busy;
+      connectBtn.disabled = busy;
+    }
+
+    async function connect() {
+      pair = splitPairing(tokenEl.value.trim());
+      if (!pair) {
+        setConn('disconnected');
+        setStatus('The token must look like port:token, with a port from ' + PORT_MIN + ' to ' + PORT_MAX + '. Copy it again in Unity.', 'err');
+        return false;
+      }
+      setConn('searching');
+      try {
+        const j = await exec(pair.port, pair.token, 'ferry_status', {});
+        if (j.unauthorized) {
+          setConn('unauthorized');
+          setStatus('That token was rejected. Tokens change when the Editor restarts: copy it again in Unity.', 'err');
+          return false;
+        }
+        if (!j.ok || !j.result || !j.result.interfaceFerry) {
+          setConn('disconnected');
+          setStatus('Unity answered, but has no ferry_status command (HTTP ' + (j.httpError || '?') + '). Is the com.aroboss.interfaceferry package installed?', 'err');
+          return false;
+        }
+        parent.postMessage({ pluginMessage: { type: 'save-prefs', token: tokenEl.value.trim() } }, '*');
+        setConn('connected', j.result.project);
+        setStatus('Ready.', 'ok');
+        return true;
+      } catch (e) {
+        setConn('disconnected');
+        setStatus('No answer from Unity on port ' + pair.port + '. Check the Editor is running and Allow Browser Clients is on in Window ▸ Pipeline ▸ Settings.', 'err');
+        return false;
+      }
+    }
+
+    async function upload(items, warnings) {
+      const started = performance.now();
+      const imageTotal = items.reduce((n, it) => n + it.images.length, 0);
+      let imageIndex = 0;
+      const failedUploads = [];
+      const files = [];
+      const notes = warnings.slice();
+      let nodes = 0;
+
+      for (const it of items) {
+        for (const img of it.images) {
+          imageIndex++;
+          setStatus('Uploading image ' + imageIndex + ' of ' + imageTotal + '…');
+          // Unlike the connector, a failed upload is reported, not swallowed.
+          const j = await exec(pair.port, pair.token, 'ferry_stage_image', { image_key: img.imageKey, png_base64: toBase64(img.bytes) });
+          if (j.unauthorized) { setConn('unauthorized'); throw new Error('Token rejected. Copy it again in Unity.'); }
+          if (!j.ok) failedUploads.push(img.imageKey + ' (' + (j.detail || 'HTTP ' + j.httpError) + ')');
+        }
+        const name = (it.payload.nodes[0] && it.payload.nodes[0].name) || 'screen';
+        setStatus('Building ' + name + ' in Unity…');
+        const j = await exec(pair.port, pair.token, 'ferry_import', { payload: it.payload });
+        if (j.unauthorized) { setConn('unauthorized'); throw new Error('Token rejected. Copy it again in Unity.'); }
+        if (!j.ok) throw new Error('Unity could not import ' + name + ': ' + (j.detail || 'HTTP ' + j.httpError));
+        if (!j.result.ok) throw new Error('Unity could not import ' + name + ': ' + (j.result.error || 'unknown'));
+        files.push(j.result.uxml);
+        nodes += it.count;
+        for (const n of (j.result.notes || [])) notes.push(n);
+      }
+
+      for (const f of failedUploads) notes.push('Upload failed: ' + f);
+      const secs = ((performance.now() - started) / 1000).toFixed(1);
+      const head = 'Pushed ' + plural(items.length, 'root') + ' · ' + plural(nodes, 'node') + ' · ' + plural(imageTotal, 'image') + ' · ' + secs + ' s\n' + files.join('\n');
+      if (notes.length) setStatus(head + '\n\n' + plural(notes.length, 'note') + ':\n' + notes.slice(0, 5).join('\n'), 'warn');
+      else setStatus(head, 'ok');
+    }
+
+    pushBtn.onclick = async () => {
+      if (busy || !selCount) return;
+      busy = true; refresh();
+      if (!connected && !await connect()) { busy = false; refresh(); return; }
+      setStatus('Rendering the selection…');
+      parent.postMessage({ pluginMessage: { type: 'collect', scale: Number(scaleEl.value) } }, '*');
+    };
+    connectBtn.onclick = connect;
+    scaleEl.onchange = () => parent.postMessage({ pluginMessage: { type: 'save-prefs', scale: Number(scaleEl.value) } }, '*');
+    tokenEl.addEventListener('input', () => { setConn('disconnected'); setStatus('Press Connect to link to that Editor.'); });
+
+    window.onmessage = async (event) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+      if (msg.type === 'selection') {
+        selCount = msg.count || 0;
+        selInfoEl.textContent = selCount ? (msg.names.slice(0, 2).join(', ') + (selCount > 2 ? ', +' + (selCount - 2) + ' more' : '') + ' selected.')
+          : 'Select layer(s) in Figma, then push.';
+        refresh();
+      } else if (msg.type === 'progress') {
+        setStatus(msg.message + '…');
+      } else if (msg.type === 'prefs') {
+        if (msg.token) tokenEl.value = msg.token;
+        if (msg.scale) scaleEl.value = String(msg.scale);
+        if (msg.token) connect();
+      } else if (msg.type === 'collected') {
+        try {
+          if (!msg.items.length) setStatus('Nothing visible to push in the selection.', 'err');
+          else await upload(msg.items, msg.warnings || []);
+        } catch (e) {
+          setStatus((e && e.message) || 'Push failed: Editor not reachable.', 'err');
+        }
+        busy = false; refresh();
+      }
+    };
+
+    parent.postMessage({ pluginMessage: { type: 'get-prefs' } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
+  </script>
+</body>
+</html>

@@ -359,9 +359,22 @@ function comparePaths(a, b) {
   return a.length - b.length;
 }
 
+// The selected layers' names in stacking order, so the same selection always lands on the same screen.
+// Capped, so a large selection does not make a file name the file system refuses.
+const MAX_NAME = 100;
+function selectionName(names) {
+  let name = '';
+  for (let i = 0; i < names.length; i++) {
+    const next = (i ? name + ' - ' : '') + names[i];
+    if (next.length > MAX_NAME && i > 0) return name + ' +' + (names.length - i);
+    name = next;
+  }
+  return name || 'Selection';
+}
+
 // Several selected layers travel as one screen with them as siblings, under a root that spans them all, so
-// they keep their places relative to each other. Ordered by stacking, not by the order they were clicked;
-// a layer whose ancestor is selected too is already inside it.
+// they keep their places relative to each other, named after them all. Ordered by stacking, not by the order
+// they were clicked; a layer whose ancestor is selected too is already inside it.
 function selectionRoot(selection) {
   const ids = new Set(selection.map((n) => n.id));
   const roots = selection
@@ -375,8 +388,7 @@ function selectionRoot(selection) {
     l = Math.min(l, box.x); t = Math.min(t, box.y);
     r = Math.max(r, box.x + box.width); b = Math.max(b, box.y + box.height);
   }
-  const parent = roots.length && roots.every((n) => n.parent === roots[0].parent) ? roots[0].parent : null;
-  const name = parent && parent.type !== 'PAGE' ? parent.name + ' Selection' : 'Selection';
+  const name = selectionName(roots.map((n) => n.name));
   return {
     roots,
     entry: { id: 'selection', name, type: 'SELECTION', parentIndex: -1,

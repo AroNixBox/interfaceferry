@@ -10,10 +10,7 @@ Every visible layer becomes a PNG (export scale 0.5x–4x), text stays text with
 - Figma desktop or web, Design mode
 
 ## Install
-`Packages/manifest.json`:
-```json
-"com.aroboss.interfaceferry": "https://github.com/AroNixBox/interfaceferry.git#v0.2.0"
-```
+Drag & Drop Unity Plugin into Project
 
 ## Use
 1. Figma: Plugins ▸ Development ▸ Import plugin from manifest… → `FigmaPlugin~/manifest.json` of this repo

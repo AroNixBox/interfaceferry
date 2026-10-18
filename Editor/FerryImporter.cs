@@ -134,7 +134,8 @@ namespace InterfaceFerry
     }
 
     /// <summary>
-    /// Writes one pushed root as &lt;Screen&gt;.raster.uxml + .uss with its PNGs under raster/&lt;Screen&gt;/.
+    /// Writes one pushed root as &lt;Screen&gt;.raster.uxml + .uss. PNGs live in the Figma file's shared raster/
+    /// folder, named by their content hash, so screens of one file share identical artwork.
     /// Every element is absolutely placed from Figma's transforms, so auto layout, constraints and the like
     /// are not translated: their effect arrives already resolved as position, rotation and scale.
     /// </summary>
@@ -162,7 +163,9 @@ namespace InterfaceFerry
             var screenName = SafeName(nodes[0].name, "Screen");
 
             var folder = OutputRoot + "/" + fileName;
-            var imageFolder = folder + "/raster/" + screenName;
+            var imageFolder = folder + "/raster";
+            // Before 0.2.0 every screen had its own raster/<Screen>/; its PNGs move to the shared folder.
+            var legacyFolder = imageFolder + "/" + screenName;
             var uxmlPath = folder + "/" + screenName + ".raster.uxml";
             var ussPath = folder + "/" + screenName + ".raster.uss";
 
@@ -179,7 +182,7 @@ namespace InterfaceFerry
             var unmapped = MapFonts(nodes, fonts);
 
             var missing = new List<string>();
-            var keys = PromoteImages(nodes, imageFolder, missing);
+            var keys = PromoteImages(nodes, imageFolder, legacyFolder, missing, out var fresh);
 
             var children = new List<int>[nodes.Length];
             for (var i = 0; i < nodes.Length; ++i)
@@ -196,18 +199,29 @@ namespace InterfaceFerry
             var uxml = new StringBuilder();
             uxml.Append("<ui:UXML xmlns:ui=\"UnityEngine.UIElements\" editor-extension-mode=\"False\">\n");
             uxml.Append("    <Style src=\"").Append(Xml(screenName + ".raster.uss")).Append("\" />\n");
-            Emit(0, nodes, children, "raster/" + screenName + "/", uxml, uss, 1, fonts);
+            Emit(0, nodes, children, "raster/", uxml, uss, 1, fonts);
             uxml.Append("</ui:UXML>\n");
 
             File.WriteAllText(ProjectPath(ussPath), uss.ToString());
             File.WriteAllText(ProjectPath(uxmlPath), uxml.ToString());
 
             // PNGs first: the USS resolves its url()s on import, and the UXML resolves the USS.
-            foreach (var key in keys)
+            // Only new files: a PNG already in the folder is the same artwork and stays as it is.
+            if (fresh.Count > 0)
+                EnsureFolder(imageFolder);
+            foreach (var key in fresh)
                 AssetDatabase.ImportAsset(imageFolder + "/" + key + ".png", ImportAssetOptions.ForceSynchronousImport);
-            PruneStale(imageFolder, keys);
             AssetDatabase.ImportAsset(ussPath, ImportAssetOptions.ForceSynchronousImport);
             AssetDatabase.ImportAsset(uxmlPath, ImportAssetOptions.ForceSynchronousImport);
+            if (AssetDatabase.IsValidFolder(legacyFolder))
+                AssetDatabase.DeleteAsset(legacyFolder);
+            else if (Directory.Exists(ProjectPath(legacyFolder)))
+            {
+                // On disk only, never imported: nothing in the AssetDatabase to delete it through.
+                Directory.Delete(ProjectPath(legacyFolder), true);
+                File.Delete(ProjectPath(legacyFolder) + ".meta");
+            }
+            var removed = CollectUnreferenced(imageFolder);
             fonts.MarkBuilt();
 
             var notes = new List<string>();
@@ -218,9 +232,11 @@ namespace InterfaceFerry
                     + ": " + string.Join(", ", unmapped));
             foreach (var note in notes)
                 Debug.LogWarning("[InterfaceFerry] " + note);
-            Debug.Log("[InterfaceFerry] " + nodes.Length + " nodes, " + keys.Count + " images -> " + uxmlPath);
+            Debug.Log("[InterfaceFerry] " + nodes.Length + " nodes, " + keys.Count + " images (" + fresh.Count + " new, "
+                + removed + " unreferenced removed) -> " + uxmlPath);
 
-            return new { ok = true, uxml = uxmlPath, uss = ussPath, nodes = nodes.Length, images = keys.Count, notes };
+            return new { ok = true, uxml = uxmlPath, uss = ussPath, nodes = nodes.Length, images = keys.Count,
+                newImages = fresh.Count, removedImages = removed, notes };
         }
 
         /// <summary>
@@ -277,11 +293,13 @@ namespace InterfaceFerry
                 AssetDatabase.CreateFolder(parent, Path.GetFileName(assetFolder));
         }
 
-        // Moves this push's staged PNGs into the screen's folder. A key already there is the same artwork,
-        // because the key hashes the bytes, so a re-push does not have to upload it again to stay valid.
-        static HashSet<string> PromoteImages(FerryNode[] nodes, string imageFolder, List<string> missing)
+        // Moves this push's staged PNGs into the shared folder. A key already there is the same artwork, because
+        // the key hashes the bytes, so it is left alone and a re-push does not have to upload it again.
+        static HashSet<string> PromoteImages(FerryNode[] nodes, string imageFolder, string legacyFolder,
+            List<string> missing, out HashSet<string> fresh)
         {
             var keys = new HashSet<string>();
+            fresh = new HashSet<string>();
             foreach (var node in nodes)
             {
                 var key = node.image?.key;
@@ -295,12 +313,20 @@ namespace InterfaceFerry
 
                 var target = ProjectPath(imageFolder + "/" + key + ".png");
                 var staged = FerryCommands.StagedPath(key);
-                if (staged != null && File.Exists(staged))
+                var legacy = ProjectPath(legacyFolder + "/" + key + ".png");
+                if (!File.Exists(target))
                 {
-                    Directory.CreateDirectory(ProjectPath(imageFolder));
-                    File.Copy(staged, target, true);
-                    File.Delete(staged);
+                    var source = staged != null && File.Exists(staged) ? staged : File.Exists(legacy) ? legacy : null;
+                    if (source != null)
+                    {
+                        Directory.CreateDirectory(ProjectPath(imageFolder));
+                        File.Copy(source, target, false);
+                        fresh.Add(key);
+                    }
                 }
+                if (staged != null && File.Exists(staged))
+                    File.Delete(staged);
+
                 if (File.Exists(target))
                     keys.Add(key);
                 else
@@ -312,19 +338,42 @@ namespace InterfaceFerry
             return keys;
         }
 
-        static void PruneStale(string imageFolder, HashSet<string> keys)
+        // Asset types that can point at a PNG: style sheets, UXML, prefabs, scenes, materials, other assets.
+        static readonly HashSet<string> k_ReferencingExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            // A text-only screen never gets an image folder.
+            ".uss", ".tss", ".uxml", ".prefab", ".unity", ".mat", ".asset", ".controller", ".anim"
+        };
+
+        /// <summary>
+        /// Deletes the PNGs of a shared raster folder that nothing in the project refers to any more, by Unity's
+        /// own dependency data, so a PNG reused in hand-made UI stays. Returns how many were removed.
+        /// </summary>
+        static int CollectUnreferenced(string imageFolder)
+        {
             if (!AssetDatabase.IsValidFolder(imageFolder))
-                return;
+                return 0;
+
+            var pngs = new List<string>();
             foreach (var guid in AssetDatabase.FindAssets("t:Texture2D", new[] { imageFolder }))
             {
                 var path = AssetDatabase.GUIDToAssetPath(guid);
-                if (Path.GetDirectoryName(path)?.Replace('\\', '/') != imageFolder)
-                    continue;
-                if (!keys.Contains(Path.GetFileNameWithoutExtension(path)))
-                    AssetDatabase.DeleteAsset(path);
+                if (Path.GetDirectoryName(path)?.Replace('\\', '/') == imageFolder)
+                    pngs.Add(path);
             }
+            if (pngs.Count == 0)
+                return 0;
+
+            var referrers = new List<string>();
+            foreach (var path in AssetDatabase.GetAllAssetPaths())
+                if (path.StartsWith("Assets/", StringComparison.Ordinal) && k_ReferencingExtensions.Contains(Path.GetExtension(path)))
+                    referrers.Add(path);
+            var used = new HashSet<string>(AssetDatabase.GetDependencies(referrers.ToArray(), false));
+
+            var removed = 0;
+            foreach (var png in pngs)
+                if (!used.Contains(png) && AssetDatabase.DeleteAsset(png))
+                    removed++;
+            return removed;
         }
 
         static void Emit(int index, FerryNode[] nodes, List<int>[] children, string imageUrlBase,
@@ -562,7 +611,7 @@ namespace InterfaceFerry
             return "fr-" + Regex.Replace(s, "[^A-Za-z0-9_-]", "");
         }
 
-        static string SafeName(string name, string fallback)
+        internal static string SafeName(string name, string fallback)
         {
             var s = k_UnsafeFileChars.Replace(name ?? "", "_").Trim().Trim('.');
             return string.IsNullOrEmpty(s) ? fallback : s;

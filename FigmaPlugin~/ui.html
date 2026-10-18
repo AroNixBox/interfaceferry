@@ -169,16 +169,29 @@
     async function upload(items, warnings) {
       const started = performance.now();
       const imageTotal = items.reduce((n, it) => n + it.images.length, 0);
-      let imageIndex = 0;
+      let uploaded = 0;
       const failedUploads = [];
       const files = [];
       const notes = warnings.slice();
       let nodes = 0;
 
       for (const it of items) {
-        for (const img of it.images) {
-          imageIndex++;
-          setStatus('Uploading image ' + imageIndex + ' of ' + imageTotal + '…');
+        // Unity keeps one folder of PNGs per Figma file; only what it does not hold yet travels. A package
+        // without the command answers with an error, and then everything is uploaded as before.
+        let images = it.images;
+        if (images.length) {
+          setStatus('Checking which images Unity already has…');
+          const m = await exec(pair.port, pair.token, 'ferry_missing_images',
+            { file_name: it.payload.fileName, image_keys: images.map((img) => img.imageKey) });
+          if (m.unauthorized) { setConn('unauthorized'); throw new Error('Token rejected. Copy it again in Unity.'); }
+          if (m.ok && m.result && Array.isArray(m.result.missing)) {
+            const missing = new Set(m.result.missing);
+            images = images.filter((img) => missing.has(img.imageKey));
+          }
+        }
+        for (const [i, img] of images.entries()) {
+          uploaded++;
+          setStatus('Uploading image ' + (i + 1) + ' of ' + images.length + '…');
           // Unlike the connector, a failed upload is reported, not swallowed.
           const j = await exec(pair.port, pair.token, 'ferry_stage_image', { image_key: img.imageKey, png_base64: toBase64(img.bytes) });
           if (j.unauthorized) { setConn('unauthorized'); throw new Error('Token rejected. Copy it again in Unity.'); }
@@ -199,7 +212,7 @@
       const secs = ((performance.now() - started) / 1000).toFixed(1);
       const flattened = items.reduce((n, it) => n + (it.flattened || 0), 0);
       const head = 'Pushed ' + plural(items.length, 'root') + ' · ' + plural(nodes, 'node') + ' · ' + plural(imageTotal, 'image')
-        + (flattened ? ' · ' + flattened + ' merged for effects' : '') + ' · ' + secs + ' s\n' + files.join('\n');
+        + ' (' + uploaded + ' new)' + (flattened ? ' · ' + flattened + ' merged for effects' : '') + ' · ' + secs + ' s\n' + files.join('\n');
       if (notes.length) setStatus(head + '\n\n' + plural(notes.length, 'note') + ':\n' + notes.slice(0, 5).join('\n'), 'warn');
       else setStatus(head, 'ok');
     }

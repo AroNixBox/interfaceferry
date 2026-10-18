@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
@@ -25,6 +26,7 @@ namespace InterfaceFerry
 
         static string s_StagingDir;
         static string s_ProjectName;
+        static string s_ProjectRoot;
 
         // Application.dataPath is main-thread only, and staging deliberately runs off the main thread.
         [InitializeOnLoadMethod]
@@ -35,6 +37,7 @@ namespace InterfaceFerry
 
             var root = Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
             s_StagingDir = Path.Combine(root, "Library", "InterfaceFerry", "staging");
+            s_ProjectRoot = root;
             s_ProjectName = Path.GetFileName(root);
         }
 
@@ -68,7 +71,7 @@ namespace InterfaceFerry
             if (path == null)
                 throw new ArgumentException("image_key is invalid");
 
-            // Bounded before decoding, so an oversized payload costs a length check rather than the allocation.
+            // pass before decoding, so an oversized payload costs a length check rather than the allocation.
             if ((pngBase64 != null ? pngBase64.Length : 0) > k_MaxStagedImageBytes * 4L / 3L + 4)
                 throw new ArgumentException("png_base64 exceeds " + k_MaxStagedImageBytes + " bytes decoded");
 
@@ -87,6 +90,21 @@ namespace InterfaceFerry
             Directory.CreateDirectory(s_StagingDir);
             File.WriteAllBytes(path, bytes);
             return new { ok = true, bytes = bytes.Length };
+        }
+
+        [CliCommand("ferry_missing_images", "Of the given image keys, the ones a Figma file's shared raster folder does not hold yet; the plugin uploads only those.",
+            // Plain file IO, no Unity API, like staging.
+            MainThreadRequired = false, Tags = new[] { k_Tag })]
+        public static object MissingImages(
+            [CliArg("file_name", "The Figma file name as the payload carries it.", Required = true)] string fileName,
+            [CliArg("image_keys", "The keys of the push's PNGs.", Required = true)] string[] imageKeys)
+        {
+            var folder = Path.Combine(s_ProjectRoot ?? "", FerryImporter.OutputRoot, FerryImporter.SafeName(fileName, "Figma"), "raster");
+            var missing = new List<string>();
+            foreach (var key in imageKeys ?? Array.Empty<string>())
+                if (k_Key.IsMatch(key ?? "") && !File.Exists(Path.Combine(folder, key + ".png")))
+                    missing.Add(key);
+            return new { ok = true, missing };
         }
 
         [CliCommand("ferry_import", "Build UXML + USS + PNGs under Assets/InterfaceFerry from a InterfaceFerry payload.",

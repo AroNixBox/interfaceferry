@@ -23,6 +23,7 @@ Every visible layer becomes a PNG (export scale 0.5x–4x), text stays text with
 3. Pick the export scale, select layers, press **Ferry selection**.
 
 Output: `Assets/InterfaceFerry/<Figma file>/<Screen>.raster.uxml` + `.raster.uss`, PNGs in `raster/<Screen>/`, fonts in `<Figma file>.fonts.asset`.
+One selected layer becomes a screen named after it. Several selected layers become **one** screen with them as siblings, in Figma's stacking order and at their positions relative to each other, under a root spanning them all, named `<common parent> Selection` (or `Selection` without a common parent).
 Re-pushing a screen overwrites it and removes PNGs it no longer uses.
 
 ## Text and fonts

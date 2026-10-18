@@ -1,6 +1,7 @@
 # Changelog
 
 ## [0.2.0] - 2026-10-18
+- Several selected layers are pushed as one screen with them as siblings (stacking order and relative positions kept) instead of one screen each.
 - Whatever a clip cuts is exported with its parent: the cut child and everything beneath it go into the clipping container's PNG, children above stay elements; also for the pushed root. Cuts are measured on box, effects and corner radii. The plugin reports how many containers were merged.
 - An import folder that exists on disk but is not yet imported is imported instead of duplicated as "<name> 1".
 

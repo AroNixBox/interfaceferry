@@ -347,6 +347,44 @@ async function walk(node, parentIndex, out, ctx) {
   if (!leaf) for (const child of node.children.slice(slice)) await walk(child, index, out, ctx);
 }
 
+// The layer's position in the document as child indices from the page down, for sorting by stacking order.
+function layerPath(node) {
+  const path = [];
+  for (let n = node; n.parent && n.type !== 'PAGE'; n = n.parent) path.unshift(n.parent.children.indexOf(n));
+  return path;
+}
+
+function comparePaths(a, b) {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return a.length - b.length;
+}
+
+// Several selected layers travel as one screen with them as siblings, under a root that spans them all, so
+// they keep their places relative to each other. Ordered by stacking, not by the order they were clicked;
+// a layer whose ancestor is selected too is already inside it.
+function selectionRoot(selection) {
+  const ids = new Set(selection.map((n) => n.id));
+  const roots = selection
+    .filter((n) => n.visible !== false)
+    .filter((n) => { for (let p = n.parent; p; p = p.parent) if (ids.has(p.id)) return false; return true; })
+    .sort((a, b) => comparePaths(layerPath(a), layerPath(b)));
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  for (const n of roots) {
+    const box = n.absoluteBoundingBox;
+    if (!box) continue;
+    l = Math.min(l, box.x); t = Math.min(t, box.y);
+    r = Math.max(r, box.x + box.width); b = Math.max(b, box.y + box.height);
+  }
+  const parent = roots.length && roots.every((n) => n.parent === roots[0].parent) ? roots[0].parent : null;
+  const name = parent && parent.type !== 'PAGE' ? parent.name + ' Selection' : 'Selection';
+  return {
+    roots,
+    entry: { id: 'selection', name, type: 'SELECTION', parentIndex: -1,
+      width: isFinite(r) ? r - l : 0, height: isFinite(b) ? b - t : 0,
+      t: [1, 0, isFinite(l) ? l : 0, 0, 1, isFinite(t) ? t : 0], opacity: 1, clip: false }
+  };
+}
+
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'get-selection') { postSelection(); return; }
 
@@ -370,15 +408,21 @@ figma.ui.onmessage = async (msg) => {
 
   if (msg.type === 'collect') {
     const scale = Number(msg.scale) > 0 ? Number(msg.scale) : 2;
-    const items = [];
     const warnings = [];
-    for (const root of figma.currentPage.selection) {
-      const nodes = [];
-      const ctx = { scale, images: [], imagesByKey: new Set(), warnings, done: 0, flattened: 0 };
-      await walk(root, -1, nodes, ctx);
-      if (nodes.length > 0)
-        items.push({ payload: { schema: SCHEMA, fileName: figma.root.name, scale, nodes }, count: nodes.length, images: ctx.images, flattened: ctx.flattened });
+    const selection = figma.currentPage.selection;
+    const nodes = [];
+    const ctx = { scale, images: [], imagesByKey: new Set(), warnings, done: 0, flattened: 0 };
+    if (selection.length === 1) {
+      await walk(selection[0], -1, nodes, ctx);
+    } else if (selection.length > 1) {
+      const { roots, entry } = selectionRoot(selection);
+      nodes.push(entry);
+      for (const root of roots) await walk(root, 0, nodes, ctx);
+      if (nodes.length === 1) nodes.length = 0; // nothing visible under the made-up root
     }
+    const items = nodes.length > 0
+      ? [{ payload: { schema: SCHEMA, fileName: figma.root.name, scale, nodes }, count: nodes.length, images: ctx.images, flattened: ctx.flattened }]
+      : [];
     figma.ui.postMessage({ type: 'collected', items, warnings });
   }
 };

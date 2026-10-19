@@ -59,7 +59,7 @@ Re-pushing a screen overwrites it.
 InterfaceFerry is MIT-licensed, **except** for a few portions derived from Unity Technologies' `com.unity.ui.figma` (UI Toolkit Connector for Figma design), which remain under the Unity Companion License. They are marked in the source with `Derived from com.unity.ui.figma` and listed file by file in [Third Party Notices.md](Third%20Party%20Notices.md). See [LICENSE.md](LICENSE.md).
 
 ## Wire protocol (schema 2)
-`POST http://localhost:<port>/api/exec`, `Authorization: Bearer <token>`, body `{ "command", "parameters" }`. A push runs `ferry_missing_images` → `ferry_stage_image` per missing PNG → `ferry_import` → `ferry_cleanup_images`; `ferry_status` runs on connect.
+`POST http://127.0.0.1:<port>/api/exec`, `Authorization: Bearer <token>`, body `{ "command", "parameters" }`. A push runs `ferry_missing_images` → `ferry_stage_image` per missing PNG → `ferry_import` → `ferry_cleanup_images`; `ferry_status` runs on connect.
 - `ferry_status` → `{ interfaceFerry, schemas, project }`
 - `ferry_missing_images { file_name, image_keys[] }` → `{ missing[] }`, the keys the file's `Images/` folder does not hold yet
 - `ferry_cleanup_images { file_name? }` → `{ removed }`, deletes unreferenced PNGs of that file's `Images/` folder, or of every file's without `file_name`

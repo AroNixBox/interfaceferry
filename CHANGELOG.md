@@ -8,7 +8,7 @@
 - Generated uGUI scenes include an active MainCamera so the Game View has a rendering camera.
 - Added a uGUI scene generator with normal Image components, editable TMP text, fixed 9584 × 1432 viewport, centred root rectangle and no CanvasScaler. Imports preserve the active scene.
 - Split image assets into UITK/Images (Default textures) and UGUI/Images (Single, Full Rect sprites). Existing flat image assets remain valid; bytes can be reused across receivers without another upload. Cleanup checks references from both receivers.
-- Added live receiver checks and plugin transport checks. Existing raster payload schema remains version 2.
+- Existing raster payload schema remains version 2.
 
 - Fonts now use one runtime `FerryFont` ScriptableObject per Figma family/style in `Assets/InterfaceFerry/<ProjectName>/<UITK or UGUI>/Fonts/`, shared by that backend's screens. Asset names use PascalCase, such as `HankenGroteskMedium`. Labels bind directly to the `font` field in UXML.
 - Removed `FerryFontMap`, payload JSON persistence, screen rebuilding on font changes and font-change signatures. Existing imports need a new push to create the per-font assets; automatic migration is not included.

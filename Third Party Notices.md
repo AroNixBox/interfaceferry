@@ -25,7 +25,6 @@ InterfaceFerry was written by reading this package to learn how it uses the Unit
 | `FigmaPlugin~/manifest.json` | `networkAccess.allowedDomains` (`http://localhost:7800` – `7849`) | Figma plugin `manifest.json` |
 | `Editor/FerryCommands.cs` | `IsPng`; the size bound and base64 validation in `StageImage` | `Editor/Pipeline/FigmaPipelineCommands.cs` |
 | `Editor/FerryMenu.cs` | `PipelineDescriptor`; copying `port:token` to the clipboard and clearing it after 60 s (`CopyToken`, `ClearCopiedToken`) | `Editor/Window/FigmaConnectorWindow.cs` |
-| `Editor/FerryFontMap.cs` | `RawPPtr`, `RawContainer`, `PPtrContainer`, `MakeAssetUrl` (the `project://database/…` asset URI) | `Editor/Mapping/FigmaFontMap.cs` |
 
 ---
 

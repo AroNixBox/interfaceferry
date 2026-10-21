@@ -5,7 +5,6 @@ using System.IO;
 using System.Security;
 using System.Text;
 using System.Text.RegularExpressions;
-using Newtonsoft.Json;
 using UnityEditor;
 using UnityEngine;
 
@@ -154,13 +153,10 @@ namespace InterfaceFerry
 
         static readonly Regex k_UnsafeFileChars = new Regex(@"[^\p{L}\p{N} _\-\.]");
 
-        // The last payload per screen, so a changed font mapping can rebuild screens without a re-push.
-        static string PayloadDir => Path.Combine(ProjectPath("Library"), "InterfaceFerry", "payloads");
-
         /// <summary>
-        /// Builds one pushed root. <paramref name="json"/> is the payload as sent, kept for <see cref="RebuildFile"/>.
+        /// Builds one pushed root, with text bound directly to shared font assets.
         /// </summary>
-        public static object Import(FerryPayload payload, string json)
+        public static object Import(FerryPayload payload)
         {
             var nodes = payload.nodes;
             var fileName = SafeName(payload.fileName, "Figma");
@@ -168,22 +164,14 @@ namespace InterfaceFerry
 
             var folder = OutputRoot + "/" + fileName;
             var imageFolder = folder + "/" + ImageFolderName;
+            var fontFolder = folder + "/" + FerryFontAssets.FolderName;
             var legacyRoot = folder + "/" + k_LegacyFolderName;
             var legacyFolder = legacyRoot + "/" + screenName;
             var uxmlPath = folder + "/" + screenName + ".raster.uxml";
             var ussPath = folder + "/" + screenName + ".raster.uss";
 
-            // Through the AssetDatabase, not only on disk: the font map is an asset and needs a known folder.
             EnsureFolder(folder);
-            if (json != null)
-            {
-                var saved = Path.Combine(PayloadDir, fileName, screenName + ".json");
-                Directory.CreateDirectory(Path.GetDirectoryName(saved));
-                File.WriteAllText(saved, json);
-            }
-
-            var fonts = FerryFontMap.LoadOrCreate(folder, fileName);
-            var unmapped = MapFonts(nodes, fonts);
+            var fonts = MapFonts(nodes, fontFolder, out var unmapped);
 
             var missing = new List<string>();
             var keys = PromoteImages(nodes, imageFolder, legacyFolder, missing, out var fresh);
@@ -226,13 +214,12 @@ namespace InterfaceFerry
                 File.Delete(ProjectPath(legacyFolder) + ".meta");
             }
             DeleteIfEmpty(legacyRoot);
-            fonts.MarkBuilt();
 
             var notes = new List<string>();
             if (missing.Count > 0)
                 notes.Add(missing.Count + " image(s) were not uploaded: " + string.Join(", ", missing));
             if (unmapped.Count > 0)
-                notes.Add(unmapped.Count + " font(s) use Unity's default font, map them in " + AssetDatabase.GetAssetPath(fonts)
+                notes.Add(unmapped.Count + " font(s) use Unity's default font, assign them in " + fontFolder
                     + ": " + string.Join(", ", unmapped));
             foreach (var note in notes)
                 Debug.LogWarning("[InterfaceFerry] " + note);
@@ -240,29 +227,6 @@ namespace InterfaceFerry
 
             return new { ok = true, uxml = uxmlPath, uss = ussPath, nodes = nodes.Length, images = keys.Count,
                 newImages = fresh.Count, notes };
-        }
-
-        /// <summary>
-        /// Re-runs the last push of every screen of one Figma file, by its import folder's name, against the
-        /// current font map. Images are already in place.
-        /// </summary>
-        public static int RebuildFile(string fileFolderName)
-        {
-            var dir = Path.Combine(PayloadDir, fileFolderName ?? "");
-            if (string.IsNullOrEmpty(fileFolderName) || !Directory.Exists(dir))
-                return 0;
-            var n = 0;
-            foreach (var path in Directory.GetFiles(dir, "*.json"))
-            {
-                var json = File.ReadAllText(path);
-                var payload = JsonConvert.DeserializeObject<FerryPayload>(json);
-                if (payload?.nodes == null || payload.nodes.Length == 0 || payload.schema != FerryCommands.Schema)
-                    continue;
-                Import(payload, null);
-                n++;
-            }
-            CleanupImages(fileFolderName);
-            return n;
         }
 
         /// <summary>
@@ -290,26 +254,26 @@ namespace InterfaceFerry
             return removed;
         }
 
-        // Adds the push's fonts to the map, and names those still without a project font.
-        static List<string> MapFonts(FerryNode[] nodes, FerryFontMap fonts)
+        static Dictionary<string, string> MapFonts(FerryNode[] nodes, string fontFolder, out List<string> unmapped)
         {
-            var used = new List<(string, string)>();
+            var fonts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            unmapped = new List<string>();
             foreach (var node in nodes)
-                if (node.text != null)
-                    used.Add((node.text.family, node.text.style));
-            fonts.EnsureEntries(used);
-
-            var unmapped = new List<string>();
-            foreach (var (family, style) in used)
             {
-                var label = FerryFontMap.Required(family, style);
-                if (fonts.Resolve(family, style) == null && !unmapped.Contains(label))
-                    unmapped.Add(label);
+                if (node.text == null || string.IsNullOrWhiteSpace(node.text.family))
+                    continue;
+                var key = FerryFontAssets.Required(node.text.family, node.text.style);
+                if (fonts.ContainsKey(key))
+                    continue;
+                var font = FerryFontAssets.LoadOrCreate(fontFolder, key);
+                fonts.Add(key, FerryFontAssets.AssetUri(font));
+                if (font.font == null)
+                    unmapped.Add(key);
             }
-            return unmapped;
+            return fonts;
         }
 
-        static void EnsureFolder(string assetFolder)
+        internal static void EnsureFolder(string assetFolder)
         {
             if (AssetDatabase.IsValidFolder(assetFolder))
                 return;
@@ -419,7 +383,7 @@ namespace InterfaceFerry
         }
 
         static void Emit(int index, FerryNode[] nodes, List<int>[] children, string imageUrlBase,
-            StringBuilder uxml, StringBuilder uss, int depth, FerryFontMap fonts)
+            StringBuilder uxml, StringBuilder uss, int depth, Dictionary<string, string> fonts)
         {
             var node = nodes[index];
             var cls = ClassOf(node.id);
@@ -449,7 +413,7 @@ namespace InterfaceFerry
             if (image != null && !ownElement)
                 AppendBackground(uss, imageUrlBase + image.key + ".png");
             if (node.text != null)
-                AppendText(uss, node, fonts);
+                AppendText(uss, node);
             uss.Append("}\n");
 
             if (ownElement)
@@ -469,7 +433,17 @@ namespace InterfaceFerry
                 var rich = RichText(node.text, out var text);
                 uxml.Append(indent).Append("<ui:Label name=\"").Append(Xml(node.name))
                     .Append("\" class=\"").Append(cls).Append("\" text=\"").Append(XmlAttr(text))
-                    .Append("\" enable-rich-text=\"").Append(rich ? "true" : "false").Append("\" />\n");
+                    .Append("\" enable-rich-text=\"").Append(rich ? "true" : "false").Append('"');
+                if (fonts.TryGetValue(FerryFontAssets.Required(node.text.family, node.text.style), out var fontUri))
+                {
+                    uxml.Append(">\n").Append(indent).Append("    <Bindings>\n")
+                        .Append(indent).Append("        <ui:DataBinding property=\"style.unityFontDefinition\" data-source=\"")
+                        .Append(Xml(fontUri)).Append("\" data-source-path=\"").Append(nameof(FerryFont.font))
+                        .Append("\" binding-mode=\"ToTarget\" />\n")
+                        .Append(indent).Append("    </Bindings>\n").Append(indent).Append("</ui:Label>\n");
+                }
+                else
+                    uxml.Append(" />\n");
                 return;
             }
 
@@ -525,7 +499,7 @@ namespace InterfaceFerry
         // The Label fills the Figma text box, so position and transforms stay those of the box. Inside it, the
         // lines are centred on a band as tall as Figma's lines: Figma pads the first line by half the leading,
         // Unity does not, and centring a block of Figma's height puts that same half above it.
-        static void AppendText(StringBuilder uss, FerryNode node, FerryFontMap fonts)
+        static void AppendText(StringBuilder uss, FerryNode node)
         {
             var t = node.text;
             Prop(uss, "margin", "0");
@@ -549,14 +523,7 @@ namespace InterfaceFerry
 
             Prop(uss, "font-size", Px(t.size));
             Prop(uss, "color", Rgba(t.color));
-            var font = fonts.Resolve(t.family, t.style);
-            if (font != null)
-                Prop(uss, "-unity-font-definition", FerryFontMap.MakeAssetUrl(font));
-            // A mapped font already is that style; synthesising bold on it would double it. Only Unity's
-            // default font, standing in for an unmapped one, gets weight and italics synthesised.
-            var bold = font == null && t.weight >= 600;
-            var italic = font == null && (t.style ?? "").IndexOf("italic", StringComparison.OrdinalIgnoreCase) >= 0;
-            Prop(uss, "-unity-font-style", bold && italic ? "bold-and-italic" : bold ? "bold" : italic ? "italic" : "normal");
+            Prop(uss, "-unity-font-style", "normal");
             if (Math.Abs(t.letterSpacing) > k_Epsilon)
                 Prop(uss, "letter-spacing", Px(t.letterSpacing));
             if (t.paragraphSpacing > k_Epsilon)
@@ -647,7 +614,7 @@ namespace InterfaceFerry
         }
 
         // Unique per node and a valid USS class: ids look like "12:34" or "I12:34;56:78" inside instances.
-        static string ClassOf(string id)
+        internal static string ClassOf(string id)
         {
             var s = (id ?? "").Replace(':', '-').Replace(';', '_');
             return "fr-" + Regex.Replace(s, "[^A-Za-z0-9_-]", "");

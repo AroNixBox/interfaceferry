@@ -135,7 +135,7 @@ namespace InterfaceFerry
             if (data.schema != Schema)
                 return new { ok = false, schemaMismatch = true, error = "schema " + data.schema + " is not supported" };
 
-            return FerryImporter.Import(data, payload.ToString(Newtonsoft.Json.Formatting.None));
+            return FerryImporter.Import(data);
         }
     }
 }

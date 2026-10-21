@@ -1,7 +1,11 @@
 # Changelog
 
 ## [Unreleased]
-- Cleaning up unreferenced PNGs is its own command, `ferry_cleanup_images`, instead of part of `ferry_import`: the plugin calls it after every push, a rebuild runs it once at the end, and Tools ▸ InterfaceFerry ▸ Clean Up Unused Images runs it for every Figma file.
+
+## [0.3.0] - 2026-10-21
+- Fonts now use one runtime `FerryFont` ScriptableObject per Figma family/style in `Assets/InterfaceFerry/<Figma file>/Fonts/`, alongside `Images/` and shared by that file's screens. Asset names use a readable family/style separator, such as `Hanken Grotesk - Medium`. Labels bind directly to the `font` field in UXML.
+- Removed `FerryFontMap`, payload JSON persistence, screen rebuilding on font changes and font-change signatures. Existing imports need a new push to create the per-font assets; automatic migration is not included.
+- Cleaning up unreferenced PNGs is its own command, `ferry_cleanup_images`, instead of part of `ferry_import`: the plugin calls it after every push, and Tools ▸ InterfaceFerry ▸ Clean Up Unused Images runs it for every Figma file.
 
 ## [0.2.0] - 2026-10-18
 - Images are shared per Figma file: one `Images/` folder per file instead of `raster/<Screen>/` per screen, PNGs named by content hash. The plugin uploads only PNGs Unity does not hold yet (`ferry_missing_images`); existing ones are not re-imported. After every import, PNGs no asset in the project refers to are deleted. Screens from 0.1.0 move into `Images/` on their next push, and the old `raster/` goes once empty.

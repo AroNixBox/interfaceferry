@@ -1,0 +1,6 @@
+{
+    "name": "InterfaceFerry.Runtime",
+    "rootNamespace": "InterfaceFerry",
+    "references": [],
+    "autoReferenced": true
+}

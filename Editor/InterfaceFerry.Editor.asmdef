@@ -2,6 +2,7 @@
     "name": "InterfaceFerry.Editor",
     "rootNamespace": "InterfaceFerry",
     "references": [
+        "InterfaceFerry.Runtime",
         "Unity.Pipeline",
         "Unity.Pipeline.Attributes"
     ],

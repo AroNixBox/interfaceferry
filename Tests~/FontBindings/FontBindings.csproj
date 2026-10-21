@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <OutputType Condition="'$(VerifyRuntimeOnly)' == 'true'">Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <DefineConstants Condition="'$(VerifyRuntimeOnly)' != 'true'">$(DefineConstants);UNITY_EDITOR</DefineConstants>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <UnityContents Condition="'$(UnityContents)' == ''">/Applications/Unity/Hub/Editor/6000.3.22f1/Unity.app/Contents</UnityContents>
+    <Managed>$(UnityContents)/Resources/Scripting/Managed</Managed>
+    <ProjectRoot>$(MSBuildThisFileDirectory)../../../../</ProjectRoot>
+    <NoWarn>$(NoWarn);0649;1701</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
+    <Compile Include="../../Editor/*.cs" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
+    <Compile Include="../../Runtime/*.cs" />
+    <Reference Include="$(Managed)/UnityEngine/UnityEngine*.dll" />
+    <Reference Include="$(Managed)/UnityEngine/UnityEditor*.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
+    <Reference Include="$(Managed)/UnityEditor/*.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
+    <Reference Include="$(Managed)/Newtonsoft.Json.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
+    <Reference Include="$(ProjectRoot)Library/ScriptAssemblies/Unity.Pipeline.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
+    <Reference Include="$(ProjectRoot)Library/ScriptAssemblies/Unity.Pipeline.Attributes.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
+  </ItemGroup>
+</Project>

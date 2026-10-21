@@ -1,6 +1,7 @@
 # Changelog
 
 ## [Unreleased]
+- Align package dependencies with the installed Pipeline 0.8.0-exp.1 and Newtonsoft JSON 3.2.2; declare the built-in UI/IMGUI/JSON modules used directly. TMP is included with uGUI 2.0.0; Unity CLI is optional development tooling.
 
 ## [0.3.0] - 2026-10-21
 - Added a project receiver setting for UI Toolkit or uGUI, reported to the Figma plugin and frozen for each push.

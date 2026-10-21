@@ -4,11 +4,26 @@
   "version": "0.3.0",
   "unity": "6000.3",
   "description": "One-click, one-way push from Figma to Unity UI Toolkit or uGUI. Every visible layer of the selection arrives as a PNG at an adjustable export scale, in the same hierarchy, absolutely placed from Figma's transforms (position, rotation, scale) via generated UXML + USS. Transport is Unity Pipeline's local /api/exec with its bearer token.",
-  "keywords": ["figma", "ui toolkit", "uxml", "uss", "ugui", "pipeline", "png"],
+  "keywords": [
+    "figma",
+    "ui toolkit",
+    "uxml",
+    "uss",
+    "ugui",
+    "pipeline",
+    "png"
+  ],
   "dependencies": {
-    "com.unity.pipeline": "0.7.0-exp.1",
-    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.pipeline": "0.8.0-exp.1",
+    "com.unity.nuget.newtonsoft-json": "3.2.2",
     "com.unity.modules.uielements": "1.0.0",
+    "com.unity.modules.ui": "1.0.0",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0",
     "com.unity.ugui": "2.0.0"
+  },
+  "author": {
+    "name": "Nixon Scherbarth",
+    "email": "nixon.scherbarth@mercedes-benz.com"
   }
 }

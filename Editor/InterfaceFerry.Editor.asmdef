@@ -4,7 +4,9 @@
     "references": [
         "InterfaceFerry.Runtime",
         "Unity.Pipeline",
-        "Unity.Pipeline.Attributes"
+        "Unity.Pipeline.Attributes",
+        "UnityEngine.UI",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [
         "Editor"

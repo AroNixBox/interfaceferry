@@ -20,6 +20,8 @@
     <Reference Include="$(Managed)/UnityEngine/UnityEditor*.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
     <Reference Include="$(Managed)/UnityEditor/*.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
     <Reference Include="$(Managed)/Newtonsoft.Json.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
+    <Reference Include="$(ProjectRoot)Library/ScriptAssemblies/UnityEngine.UI.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
+    <Reference Include="$(ProjectRoot)Library/ScriptAssemblies/Unity.TextMeshPro.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
     <Reference Include="$(ProjectRoot)Library/ScriptAssemblies/Unity.Pipeline.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
     <Reference Include="$(ProjectRoot)Library/ScriptAssemblies/Unity.Pipeline.Attributes.dll" Condition="'$(VerifyRuntimeOnly)' != 'true'" />
   </ItemGroup>

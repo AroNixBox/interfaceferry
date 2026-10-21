@@ -13,8 +13,8 @@ static class Program
     {
         var assetName = typeof(FerryFontAssets).GetMethod("AssetName", BindingFlags.Static | BindingFlags.NonPublic);
         Check(assetName != null, "Font assets need readable names instead of an underscore for the family/style separator.");
-        Check((string)assetName.Invoke(null, new object[] { "Hanken Grotesk / Medium" }) == "Hanken Grotesk - Medium", "Font names must separate family and style with a readable hyphen.");
-        Check((string)assetName.Invoke(null, new object[] { "Font:Name / SemiBold" }) == "Font_Name - SemiBold", "Other unsafe filename characters must still be sanitized.");
+        Check((string)assetName.Invoke(null, new object[] { "Hanken Grotesk / Medium" }) == "HankenGroteskMedium", "Font asset names must use PascalCase without separators.");
+        Check((string)assetName.Invoke(null, new object[] { "Font:Name / SemiBold" }) == "FontNameSemiBold", "Punctuation must be removed from generated asset names.");
         var fontUri = "project://database/Assets/InterfaceFerry/Fonts/Hanken.asset?fileID=11400000&guid=abc&type=2#Hanken";
         var fonts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -57,7 +57,7 @@ static class Program
         if (arguments.Contains("--existing-project"))
         {
             var count = 0;
-            foreach (var screen in Directory.GetFiles("Assets/InterfaceFerry", "*.raster.uxml", SearchOption.AllDirectories))
+            foreach (var screen in Directory.GetFiles("Assets/InterfaceFerry", "*.uxml", SearchOption.AllDirectories))
                 foreach (var fontBinding in XDocument.Load(screen).Descendants().Where(e =>
                     e.Name.LocalName == "DataBinding" && (string)e.Attribute("data-source-path") == "font"))
                 {

@@ -17,7 +17,18 @@ namespace InterfaceFerry
                 return;
 
             var importer = (TextureImporter)assetImporter;
-            importer.textureType = TextureImporterType.Default;
+            var ugui = (assetPath.Contains("/UGUI/Images/") || assetPath.Contains("/Images/UGUI/"));
+            importer.textureType = ugui ? TextureImporterType.Sprite : TextureImporterType.Default;
+            if (ugui)
+            {
+                importer.spriteImportMode = SpriteImportMode.Single;
+                importer.spritePixelsPerUnit = 100;
+                var settings = new TextureImporterSettings();
+                importer.ReadTextureSettings(settings);
+                settings.spriteMeshType = UnityEngine.SpriteMeshType.FullRect;
+                settings.spriteGenerateFallbackPhysicsShape = false;
+                importer.SetTextureSettings(settings);
+            }
             importer.npotScale = TextureImporterNPOTScale.None;
             importer.mipmapEnabled = false;
             importer.alphaSource = TextureImporterAlphaSource.FromInput;

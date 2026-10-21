@@ -25,8 +25,19 @@ namespace InterfaceFerry
 
             var asset = ScriptableObject.CreateInstance<FerryFont>();
             asset.figmaName = figmaName;
+            // Seed a new backend mapping from the other backend; subsequent edits are independent.
+            if (font == null && (folder.Contains("/UGUI/") || folder.Contains("/UITK/")))
+            {
+                var other = folder.Contains("/UGUI/") ? folder.Replace("/UGUI/", "/UITK/") : folder.Replace("/UITK/", "/UGUI/");
+                if (AssetDatabase.IsValidFolder(other))
+                    foreach (var guid in AssetDatabase.FindAssets("t:FerryFont", new[] { other }))
+                    {
+                        var source = AssetDatabase.LoadAssetAtPath<FerryFont>(AssetDatabase.GUIDToAssetPath(guid));
+                        if (source != null && string.Equals(source.figmaName, figmaName, StringComparison.OrdinalIgnoreCase)) { font = source.font; break; }
+                    }
+            }
             asset.font = font;
-            var path = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + AssetName(figmaName) + ".asset");
+            var path = FerryImporter.UniqueAssetPath(folder + "/" + AssetName(figmaName) + ".asset");
             AssetDatabase.CreateAsset(asset, path);
             return asset;
         }

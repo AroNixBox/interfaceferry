@@ -60,7 +60,8 @@ namespace InterfaceFerry
         [CliCommand("ferry_status", "Identify this Editor to the InterfaceFerry Figma plugin.", Tags = new[] { k_Tag })]
         public static object Status()
         {
-            return new { interfaceFerry = true, schemas = new[] { Schema }, project = s_ProjectName };
+            return new { interfaceFerry = true, schemas = new[] { Schema }, project = s_ProjectName,
+                receiveAs = FerrySettings.instance.receiveAs.ToString() };
         }
 
         [CliCommand("ferry_stage_image", "Stage one PNG exported by the InterfaceFerry Figma plugin; the next ferry_import moves it into Assets.",
@@ -99,16 +100,17 @@ namespace InterfaceFerry
         }
 
         [CliCommand("ferry_missing_images", "Of the given image keys, the ones a Figma file's shared Images folder does not hold yet; the plugin uploads only those.",
-            // Plain file IO, no Unity API, like staging.
-            MainThreadRequired = false, Tags = new[] { k_Tag })]
+            // Project receiver settings are resolved on the Editor main thread.
+            MainThreadRequired = true, Tags = new[] { k_Tag })]
         public static object MissingImages(
             [CliArg("file_name", "The Figma file name as the payload carries it.", Required = true)] string fileName,
-            [CliArg("image_keys", "The keys of the push's PNGs.", Required = true)] string[] imageKeys)
+            [CliArg("image_keys", "The keys of the push's PNGs.", Required = true)] string[] imageKeys,
+            [CliArg("target", "Receive as UITK or UGUI; omitted uses project settings.")] string target = null)
         {
-            var folder = Path.Combine(s_ProjectRoot ?? "", FerryImporter.OutputRoot, FerryImporter.SafeName(fileName, "Figma"), FerryImporter.ImageFolderName);
+            var mode = FerrySettings.Resolve(target);
             var missing = new List<string>();
             foreach (var key in imageKeys ?? Array.Empty<string>())
-                if (k_Key.IsMatch(key ?? "") && !File.Exists(Path.Combine(folder, key + ".png")))
+                if (k_Key.IsMatch(key ?? "") && FerryImporter.ExistingImage(fileName, key, mode) == null)
                     missing.Add(key);
             return new { ok = true, missing };
         }
@@ -121,10 +123,11 @@ namespace InterfaceFerry
             return new { ok = true, removed = FerryImporter.CleanupImages(fileName) };
         }
 
-        [CliCommand("ferry_import", "Build UXML + USS + PNGs under Assets/InterfaceFerry from an InterfaceFerry payload.",
+        [CliCommand("ferry_import", "Build UI Toolkit assets or a uGUI scene under Assets/InterfaceFerry from an InterfaceFerry payload.",
             Tags = new[] { k_Tag })]
         public static object Import(
-            [CliArg("payload", "The raster payload, as a JSON object.", Required = true)] JObject payload)
+            [CliArg("payload", "The raster payload, as a JSON object.", Required = true)] JObject payload,
+            [CliArg("target", "Receive as UITK or UGUI; omitted uses project settings.")] string target = null)
         {
             if (payload == null)
                 throw new ArgumentException("payload is required");
@@ -135,7 +138,7 @@ namespace InterfaceFerry
             if (data.schema != Schema)
                 return new { ok = false, schemaMismatch = true, error = "schema " + data.schema + " is not supported" };
 
-            return FerryImporter.Import(data);
+            return FerryImporter.Import(data, FerrySettings.Resolve(target));
         }
     }
 }

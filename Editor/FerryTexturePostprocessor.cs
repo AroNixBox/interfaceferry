@@ -12,23 +12,18 @@ namespace InterfaceFerry
         {
             if (!assetPath.StartsWith(FerryImporter.OutputRoot + "/"))
                 return;
-            // raster/ is 0.1.0's folder; its PNGs keep these settings until they move to Images/.
-            if (!assetPath.Contains("/" + FerryImporter.ImageFolderName + "/") && !assetPath.Contains("/raster/"))
+            if (!assetPath.Contains("/" + FerryImporter.ImageFolderName + "/"))
                 return;
 
             var importer = (TextureImporter)assetImporter;
-            var ugui = (assetPath.Contains("/UGUI/Images/") || assetPath.Contains("/Images/UGUI/"));
-            importer.textureType = ugui ? TextureImporterType.Sprite : TextureImporterType.Default;
-            if (ugui)
-            {
-                importer.spriteImportMode = SpriteImportMode.Single;
-                importer.spritePixelsPerUnit = 100;
-                var settings = new TextureImporterSettings();
-                importer.ReadTextureSettings(settings);
-                settings.spriteMeshType = UnityEngine.SpriteMeshType.FullRect;
-                settings.spriteGenerateFallbackPhysicsShape = false;
-                importer.SetTextureSettings(settings);
-            }
+            importer.textureType = TextureImporterType.Sprite;
+            importer.spriteImportMode = SpriteImportMode.Single;
+            importer.spritePixelsPerUnit = 100;
+            var settings = new TextureImporterSettings();
+            importer.ReadTextureSettings(settings);
+            settings.spriteMeshType = UnityEngine.SpriteMeshType.FullRect;
+            settings.spriteGenerateFallbackPhysicsShape = false;
+            importer.SetTextureSettings(settings);
             importer.npotScale = TextureImporterNPOTScale.None;
             importer.mipmapEnabled = false;
             importer.alphaSource = TextureImporterAlphaSource.FromInput;

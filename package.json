@@ -3,12 +3,9 @@
   "displayName": "InterfaceFerry",
   "version": "0.3.0",
   "unity": "6000.3",
-  "description": "One-click, one-way push from Figma to Unity UI Toolkit or uGUI. Every visible layer of the selection arrives as a PNG at an adjustable export scale, in the same hierarchy, absolutely placed from Figma's transforms (position, rotation, scale) via generated UXML + USS. Transport is Unity Pipeline's local /api/exec with its bearer token.",
+  "description": "One-click, one-way push from Figma to Unity uGUI. Visible layers arrive as PNG sprites and editable text in a generated scene, preserving hierarchy and Figma transforms. Transport is Unity Pipeline's local /api/exec with its bearer token.",
   "keywords": [
     "figma",
-    "ui toolkit",
-    "uxml",
-    "uss",
     "ugui",
     "pipeline",
     "png"
@@ -16,7 +13,6 @@
   "dependencies": {
     "com.unity.pipeline": "0.8.0-exp.1",
     "com.unity.nuget.newtonsoft-json": "3.2.2",
-    "com.unity.modules.uielements": "1.0.0",
     "com.unity.modules.ui": "1.0.0",
     "com.unity.modules.imgui": "1.0.0",
     "com.unity.modules.jsonserialize": "1.0.0",

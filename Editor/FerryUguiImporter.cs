@@ -30,7 +30,7 @@ namespace InterfaceFerry
                 }
             var scenesFolder = folder;
             FerryImporter.EnsureFolder(scenesFolder);
-            var scenePath = scenesFolder + "/" + FerryImporter.SafeName(payload.nodes[0].name, "Screen") + ".unity";
+            var scenePath = scenesFolder + "/" + FerryImporter.SanitizeName(payload.nodes[0].name) + ".unity";
             for (var i = 0; i < SceneManager.sceneCount; i++)
                 if (SceneManager.GetSceneAt(i).path == scenePath)
                     throw new InvalidOperationException("Close the generated scene before re-importing it: " + scenePath);
@@ -118,7 +118,7 @@ namespace InterfaceFerry
             }
             foreach (var note in notes) Debug.LogWarning("[InterfaceFerry] " + note);
             Debug.Log("[InterfaceFerry] " + payload.nodes.Length + " nodes -> " + scenePath);
-            return new { ok = true, target = "UGUI", scene = scenePath, nodes = payload.nodes.Length, images, newImages, notes };
+            return new { ok = true, scene = scenePath, nodes = payload.nodes.Length, images, newImages, notes };
         }
 
         internal static Camera CreateCamera(Scene scene)
@@ -247,7 +247,7 @@ namespace InterfaceFerry
             var asset = TMP_FontAsset.CreateFontAsset(font);
             if (asset == null) throw new InvalidOperationException("Could not create TMP font for " + key);
             asset.name = font.name;
-            var path = FerryImporter.UniqueAssetPath(fontFolder + "/" + FerryImporter.SafeName(font.name, "Font") + "TMP.asset");
+            var path = FerryImporter.UniqueAssetPath(fontFolder + "/" + FerryImporter.SanitizeName(font.name) + "TMP.asset");
             AssetDatabase.CreateAsset(asset, path);
             if (asset.material != null) AssetDatabase.AddObjectToAsset(asset.material, asset);
             foreach (var atlas in asset.atlasTextures) if (atlas != null) AssetDatabase.AddObjectToAsset(atlas, asset);

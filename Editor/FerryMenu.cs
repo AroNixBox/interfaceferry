@@ -7,10 +7,6 @@ using PackageInfo = UnityEditor.PackageManager.PackageInfo;
 
 namespace InterfaceFerry
 {
-    /// <summary>
-    /// Pairing. The plugin speaks the connector's format, "port:token", with Pipeline's own token, so the
-    /// connector window's Copy token works too; this is the same thing without opening that window.
-    /// </summary>
     static class FerryMenu
     {
         // --- Derived from com.unity.ui.figma 0.2.0-exp.1 (Editor/Window/FigmaConnectorWindow.cs: PipelineDescriptor, CopyToken).
@@ -57,13 +53,6 @@ namespace InterfaceFerry
             Debug.Log("[InterfaceFerry] Token for port " + descriptor.port + " copied. Paste it into the plugin within 60 s.");
         }
         // --- End of portion derived from com.unity.ui.figma.
-
-        [MenuItem("Tools/InterfaceFerry/Clean Up Unused Images")]
-        static void CleanupImages()
-        {
-            var n = FerryImporter.CleanupImages(null);
-            Debug.Log("[InterfaceFerry] Clean up: " + n + " unreferenced image(s) removed.");
-        }
 
         [MenuItem("Tools/InterfaceFerry/Reveal Figma Plugin")]
         static void RevealPlugin()

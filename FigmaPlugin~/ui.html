@@ -67,7 +67,7 @@
   <p class="hint">PNG resolution only. Sizes and positions in Unity stay in Figma pixels.</p>
 
   <label>Push to Unity</label>
-  <p id="receiveInfo" class="hint">Receiver is selected in Unity: Project Settings ▸ InterfaceFerry.</p>
+  <p id="receiveInfo" class="hint">Imports editable uGUI scenes with Images and Fonts.</p>
   <p id="selInfo" class="hint">Select layer(s) in Figma, then push.</p>
   <button id="push" disabled>Ferry selection</button>
 
@@ -123,9 +123,6 @@
     let connected = false;
     let selCount = 0;
     let busy = false;
-    let receiveAs = 'UITK';
-    let supportsTargets = false;
-    let pushTarget = null;
 
     function setStatus(message, cls) { statusEl.className = cls || ''; statusEl.textContent = message; }
     function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
@@ -166,9 +163,6 @@
           return false;
         }
         parent.postMessage({ pluginMessage: { type: 'save-prefs', token: tokenEl.value.trim() } }, '*');
-        supportsTargets = j.result.receiveAs === 'UITK' || j.result.receiveAs === 'UGUI';
-        receiveAs = supportsTargets ? j.result.receiveAs : 'UITK';
-        document.getElementById('receiveInfo').textContent = 'Receive as: ' + (receiveAs === 'UGUI' ? 'uGUI · Images + scene' : 'UI Toolkit · UXML + USS') + ' — selected in Unity.';
         setConn('connected', j.result.project);
         setStatus('Ready.', 'ok');
         return true;
@@ -181,7 +175,6 @@
 
     async function upload(items, warnings) {
       const started = performance.now();
-      const targetArgs = pushTarget ? { target: pushTarget } : {};
       const imageTotal = items.reduce((n, it) => n + it.images.length, 0);
       let uploaded = 0;
       const failedUploads = [];
@@ -196,7 +189,7 @@
         if (images.length) {
           setStatus('Checking which images Unity already has…');
           const m = await exec(pair.port, pair.token, 'ferry_missing_images',
-            { file_name: it.payload.fileName, image_keys: images.map((img) => img.imageKey), ...targetArgs });
+            { file_name: it.payload.fileName, image_keys: images.map((img) => img.imageKey) });
           if (m.unauthorized) { setConn('unauthorized'); throw new Error('Token rejected. Copy it again in Unity.'); }
           if (m.ok && m.result && Array.isArray(m.result.missing)) {
             const missing = new Set(m.result.missing);
@@ -213,30 +206,20 @@
         }
         const name = (it.payload.nodes[0] && it.payload.nodes[0].name) || 'screen';
         setStatus('Building ' + name + ' in Unity…');
-        const j = await exec(pair.port, pair.token, 'ferry_import', { payload: it.payload, ...targetArgs });
+        const j = await exec(pair.port, pair.token, 'ferry_import', { payload: it.payload });
         if (j.unauthorized) { setConn('unauthorized'); throw new Error('Token rejected. Copy it again in Unity.'); }
         if (!j.ok) throw new Error('Unity could not import ' + name + ': ' + (j.detail || 'HTTP ' + j.httpError));
         if (!j.result.ok) throw new Error('Unity could not import ' + name + ': ' + (j.result.error || 'unknown'));
-        files.push(j.result.scene || j.result.uxml);
+        files.push(j.result.scene);
         nodes += it.count;
         for (const n of (j.result.notes || [])) notes.push(n);
-      }
-
-      // Its own step: the Images folder belongs to all screens of the Figma file, not to the one just built.
-      // A package without the command answers with an error, which only means nothing is cleaned up.
-      let removed = 0;
-      for (const fileName of new Set(items.map((it) => it.payload.fileName))) {
-        setStatus('Cleaning up unused images…');
-        const c = await exec(pair.port, pair.token, 'ferry_cleanup_images', { file_name: fileName });
-        if (c.unauthorized) { setConn('unauthorized'); throw new Error('Token rejected. Copy it again in Unity.'); }
-        if (c.ok && c.result) removed += c.result.removed || 0;
       }
 
       for (const f of failedUploads) notes.push('Upload failed: ' + f);
       const secs = ((performance.now() - started) / 1000).toFixed(1);
       const flattened = items.reduce((n, it) => n + (it.flattened || 0), 0);
       const head = 'Pushed ' + plural(items.length, 'root') + ' · ' + plural(nodes, 'node') + ' · ' + plural(imageTotal, 'image')
-        + ' (' + uploaded + ' new' + (removed ? ', ' + removed + ' unused removed' : '') + ')' + (flattened ? ' · ' + flattened + ' merged for effects' : '') + ' · ' + secs + ' s\n' + files.join('\n');
+        + ' (' + uploaded + ' new' + (flattened ? ' · ' + flattened + ' merged for effects' : '') + ' · ' + secs + ' s\n' + files.join('\n');
       if (notes.length) setStatus(head + '\n\n' + plural(notes.length, 'note') + ':\n' + notes.slice(0, 5).join('\n'), 'warn');
       else setStatus(head, 'ok');
     }
@@ -245,7 +228,6 @@
       if (busy || !selCount) return;
       busy = true; refresh();
       if (!await connect()) { busy = false; refresh(); return; }
-      pushTarget = supportsTargets ? receiveAs : null;
       setStatus('Rendering the selection…');
       parent.postMessage({ pluginMessage: { type: 'collect', scale: Number(scaleEl.value) } }, '*');
     };

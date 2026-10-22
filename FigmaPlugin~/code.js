@@ -234,7 +234,7 @@ function applyTextCase(s, textCase) {
   return s;
 }
 
-// USS has no line-height and no text-transform, so both travel resolved: pixels, and the characters as shown.
+// Send resolved spacing in pixels and characters with Figma text case applied.
 function toPx(spacing, fontSize) {
   if (!spacing || spacing.unit === 'AUTO') return 0;
   return spacing.unit === 'PERCENT' ? spacing.value * fontSize / 100 : spacing.value;
@@ -261,7 +261,7 @@ async function contentHeight(node) {
   }
 }
 
-// Text that USS can draw travels as text; null when it cannot (gradient or image fill), so it stays a PNG.
+// Supported solid-fill text travels as editable text; null when it cannot (gradient or image fill), so it stays a PNG.
 async function textInfo(node, ctx) {
   const fills = firstOf(node, 'fills', 'getRangeFills');
   const visible = (fills.value || []).filter((p) => p && p.visible !== false && p.opacity !== 0);

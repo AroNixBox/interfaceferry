@@ -22,6 +22,16 @@ function hasChildren(node) {
   return 'children' in node && node.children.length > 0;
 }
 
+function hasClick(node) {
+  return Array.isArray(node.reactions) && node.reactions.some((reaction) =>
+    reaction.trigger && reaction.trigger.type === 'ON_CLICK');
+}
+
+function hasVisibleClick(node) {
+  if (node.visible === false) return false;
+  return hasClick(node) || (hasChildren(node) && node.children.some(hasVisibleClick));
+}
+
 // A mask clips its later siblings, which separate PNGs cannot reproduce, so its container is one picture.
 // A boolean operation is one shape no matter how many operands it has.
 function isLeaf(node) {
@@ -121,11 +131,16 @@ function drawsItself(node) {
 // If all children are baked, the container becomes a single image and needs no separate Unity Mask.
 // If the slice contains visible text (including nested text), merge none of the children: keep them
 // separate so text stays editable, and let Unity's Mask on the container perform the clipping instead.
+// Click targets also stay separate so their Button components are not lost in a PNG.
 function cutSlice(node, ctx) {
   if (node.clipsContent !== true || !hasChildren(node)) return 0;
   let top = -1;
   node.children.forEach((child, i) => { if (cutsChild(node, child)) top = i; });
   if (top < 0) return 0;
+  if (node.children.slice(0, top + 1).some(hasVisibleClick)) {
+    ctx.warnings.push(node.name + ': its clip cuts an interactive layer, so children stay separate and Unity cuts to the box');
+    return 0;
+  }
   if (node.children.slice(0, top + 1).some(hasVisibleText)) {
     ctx.warnings.push(node.name + ': its clip cuts a layer, but text lies at or below it, so nothing is merged and Unity cuts to the box');
     return 0;
@@ -313,33 +328,34 @@ async function textInfo(node, ctx) {
   };
 }
 
-async function walk(node, parentIndex, out, ctx) {
+async function walk(node, parentIndex, out, ctx, interactionOnly = false) {
   if (node.visible === false) return;
 
-  const slice = isLeaf(node) ? 0 : cutSlice(node, ctx);
+  const slice = interactionOnly || isLeaf(node) ? 0 : cutSlice(node, ctx);
   const leaf = isLeaf(node) || slice === node.children.length;
   const entry = {
     id: node.id,
     name: node.name,
     type: node.type,
+    onClick: hasClick(node),
     parentIndex,
     width: node.width,
     height: node.height,
     t: flatTransform(node.absoluteTransform)
   };
-  if (!leaf) {
-    entry.opacity = typeof node.opacity === 'number' ? node.opacity : 1;
+  if (!leaf || interactionOnly) {
+    entry.opacity = interactionOnly ? 1 : typeof node.opacity === 'number' ? node.opacity : 1;
     entry.clip = node.clipsContent === true;
   }
 
   // A text's opacity is not baked into pixels here, so it travels like a container's.
-  const text = node.type === 'TEXT' ? await textInfo(node, ctx) : null;
+  const text = !interactionOnly && node.type === 'TEXT' ? await textInfo(node, ctx) : null;
   if (text) {
     entry.text = text;
     entry.opacity = typeof node.opacity === 'number' ? node.opacity : 1;
   }
 
-  const mode = text ? null : leaf ? (node.opacity === 0 ? null : 'leaf') : (slice > 0 || hasOwnVisuals(node) ? 'own' : null);
+  const mode = interactionOnly || text ? null : leaf ? (node.opacity === 0 ? null : 'leaf') : (slice > 0 || hasOwnVisuals(node) ? 'own' : null);
   if (mode) {
     ctx.done++;
     figma.ui.postMessage({ type: 'progress', message: 'Rendering ' + ctx.done + ' - ' + node.name });
@@ -351,7 +367,14 @@ async function walk(node, parentIndex, out, ctx) {
   const index = out.length;
   out.push(entry);
   // The cut slice is already in the container's picture; only the children above it are elements.
-  if (!leaf) for (const child of node.children.slice(slice)) await walk(child, index, out, ctx);
+  if (interactionOnly || leaf) {
+    // Masked/boolean artwork remains one PNG, but nested click targets keep their transforms
+    // and hierarchy as transparent hit areas without duplicating the baked artwork.
+    if (hasChildren(node)) for (const child of node.children)
+      if (hasVisibleClick(child)) await walk(child, index, out, ctx, true);
+  } else {
+    for (const child of node.children.slice(slice)) await walk(child, index, out, ctx);
+  }
 }
 
 // The layer's position in the document as child indices from the page down, for sorting by stacking order.

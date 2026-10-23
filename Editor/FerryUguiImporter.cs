@@ -26,7 +26,7 @@ namespace InterfaceFerry
 
             var rootNodeName = payload.nodes[0].name;
 
-            var canvasObject = new GameObject(rootNodeName, typeof(RectTransform), typeof(Canvas), typeof(UnityEngine.UI.GraphicRaycaster));
+            var canvasObject = new GameObject(rootNodeName + "Canvas", typeof(RectTransform), typeof(Canvas), typeof(UnityEngine.UI.GraphicRaycaster));
             var canvas = canvasObject.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.referencePixelsPerUnit = 100;
@@ -73,6 +73,7 @@ namespace InterfaceFerry
                     var imageRect = overhang || node.clip ? Rect("__raster", rect, image.w, image.h) : rect;
                     if (overhang) imageRect.anchoredPosition = new Vector2(image.x, -image.y);
                     var graphic = imageRect.gameObject.AddComponent<UnityEngine.UI.Image>();
+                    UnityEditorInternal.ComponentUtility.MoveComponentUp(graphic);
                     graphic.sprite = AssetDatabase.LoadAssetAtPath<Sprite>(imageFolder + "/" + image.key + ".png");
                     graphic.type = UnityEngine.UI.Image.Type.Simple;
                     graphic.useSpriteMesh = false;
@@ -90,10 +91,12 @@ namespace InterfaceFerry
                 if (node.clip)
                 {
                     var maskGraphic = rect.gameObject.AddComponent<UnityEngine.UI.Image>();
+                    UnityEditorInternal.ComponentUtility.MoveComponentUp(maskGraphic);
                     maskGraphic.raycastTarget = false;
                     rect.gameObject.AddComponent<UnityEngine.UI.Mask>().showMaskGraphic = false;
                 }
                 if (node.opacity < 0.9999f) rect.gameObject.AddComponent<CanvasGroup>().alpha = Mathf.Clamp01(node.opacity);
+                if (node.onClick) Button(rect);
             }
 
             foreach (var font in fonts.Values)
@@ -118,6 +121,30 @@ namespace InterfaceFerry
             
             return new { ok = success, prefab = localPath, nodes = payload.nodes.Length, totalImagesCount = totalImagesCount,
                 newImagesCount = newImagesCount, missingImagesCount = missingImagesCount };
+        }
+
+        static void Button(RectTransform rect)
+        {
+            var graphic = rect.GetComponent<UnityEngine.UI.Graphic>();
+            if (graphic == null)
+            {
+                graphic = rect.gameObject.AddComponent<UnityEngine.UI.Image>();
+                graphic.color = Color.clear;
+                UnityEditorInternal.ComponentUtility.MoveComponentUp(graphic);
+            }
+            graphic.raycastTarget = true;
+
+            // Only the original Figma bounds receive clicks, not a shadow's raster overhang.
+            var raster = rect.Find("__raster");
+            if (raster != null && raster.TryGetComponent<UnityEngine.UI.Graphic>(out var rasterGraphic))
+                rasterGraphic.raycastTarget = false;
+
+            var button = rect.gameObject.AddComponent<UnityEngine.UI.Button>();
+            button.targetGraphic = graphic;
+            // Figma's appearance stays unchanged until explicit button states are configured.
+            button.transition = UnityEngine.UI.Selectable.Transition.None;
+            while (rect.GetComponents<Component>()[1] != button)
+                if (!UnityEditorInternal.ComponentUtility.MoveComponentUp(button)) break;
         }
 
         static RectTransform Rect(string name, Transform parent, float width, float height)
@@ -170,6 +197,7 @@ namespace InterfaceFerry
         {
             var data = node.text;
             var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
+            UnityEditorInternal.ComponentUtility.MoveComponentUp(text);
             text.font = Font(data, folder, fonts);
             text.fontSize = data.size;
             text.enableAutoSizing = false;

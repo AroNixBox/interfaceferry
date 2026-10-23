@@ -23,6 +23,9 @@ Output under `Assets/InterfaceFerry/`:
   ColorPickerHome.unity
 ```
 
+### Buttons:
+- Figma elements with an **On Click** interaction become Unity `Button` components; click actions are configured in Unity.
+
 ### Images:
 - The Figma hierarchy is preserved except where children must be baked together for clipping. If a node's graphics extend beyond its bounds (for example, a drop shadow), a `__raster` child holds the image at its exported size and offset. Visual overflow alone does not create a Mask.
 - A container with **Clip content** enabled uses a Unity Mask while its children remain separate, with its own image displayed in a `__raster` child. This does not automatically combine all of its children. If all children are baked into one PNG, clipping is already part of that image and no separate Unity Mask is needed.

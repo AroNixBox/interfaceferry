@@ -16,6 +16,7 @@ namespace InterfaceFerry
         // Containers and text only. Any other leaf's own opacity is baked into its PNG.
         public float opacity = 1f;
         public bool clip;
+        public bool onClick;
         public FerryImage image;
         public FerryText text;
     }

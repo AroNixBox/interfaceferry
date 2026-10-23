@@ -1,140 +1,123 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
+using System.Linq;
 using TMPro;
 using UnityEditor;
-using UnityEditor.SceneManagement;
 using UnityEngine;
-using UnityEngine.EventSystems;
-using UnityEngine.SceneManagement;
+using Object = System.Object;
 
 namespace InterfaceFerry
 {
     static class FerryUguiImporter
     {
-        internal const int Width = 9584;
-        internal const int Height = 1432;
-
         internal static object Import(FerryPayload payload, string folder, string imageFolder,
-            int images, int newImages, List<string> notes)
+            int totalImagesCount, int newImagesCount, int missingImagesCount)
         {
-            foreach (var node in payload.nodes)
-                if (node.text != null && Resources.Load<TMP_Settings>("TMP Settings") == null)
-                {
-                    TMP_PackageResourceImporter.ImportResources(true, false, false);
-                    AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-                    if (Resources.Load<TMP_Settings>("TMP Settings") == null)
-                        throw new InvalidOperationException("TextMesh Pro essentials are being installed. Push the selection again when Unity finishes importing them.");
-                    break;
-                }
-            var scenesFolder = folder;
-            FerryImporter.EnsureFolder(scenesFolder);
-            var scenePath = scenesFolder + "/" + FerryImporter.SanitizeName(payload.nodes[0].name) + ".unity";
-            for (var i = 0; i < SceneManager.sceneCount; i++)
-                if (SceneManager.GetSceneAt(i).path == scenePath)
-                    throw new InvalidOperationException("Close the generated scene before re-importing it: " + scenePath);
-
-            var previous = SceneManager.GetActiveScene();
-            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
-            try
+            var containsText = payload.nodes.Any(e => e.text != null);
+            var tmpImported = Resources.Load<TMP_Settings>("TMP Settings") != null;
+            if (containsText && !tmpImported)
             {
-                CreateCamera(scene);
-
-                var canvasObject = new GameObject("Canvas", typeof(RectTransform), typeof(Canvas), typeof(UnityEngine.UI.GraphicRaycaster));
-                SceneManager.MoveGameObjectToScene(canvasObject, scene);
-                var canvas = canvasObject.GetComponent<Canvas>();
-                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-                canvas.referencePixelsPerUnit = 100;
-                var viewport = Rect("Viewport", canvasObject.transform, Width, Height);
-                viewport.anchorMin = viewport.anchorMax = viewport.pivot = new Vector2(0.5f, 0.5f);
-                viewport.anchoredPosition = Vector2.zero;
-
-                var objects = new RectTransform[payload.nodes.Length];
-                var fonts = new Dictionary<string, TMP_FontAsset>(StringComparer.OrdinalIgnoreCase);
-                for (var i = 0; i < payload.nodes.Length; i++)
-                {
-                    var node = payload.nodes[i];
-                    var root = i == 0 || node.parentIndex < 0;
-                    if (!root && (node.parentIndex >= i || node.parentIndex >= objects.Length))
-                        throw new ArgumentException("Invalid parentIndex at " + node.name);
-                    var parent = root ? viewport : objects[node.parentIndex];
-                    var rect = Rect(node.name, parent, node.width, node.height);
-                    objects[i] = rect;
-                    if (root) rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
-                    var absolute = Affine.From(node.t);
-                    var local = root ? new Affine { m00 = absolute.m00, m01 = absolute.m01, m10 = absolute.m10, m11 = absolute.m11 }
-                        : Affine.From(payload.nodes[node.parentIndex].t).Inverse() * absolute;
-                    Transform(rect, local);
-                    if (node.opacity < 0.9999f) rect.gameObject.AddComponent<CanvasGroup>().alpha = Mathf.Clamp01(node.opacity);
-                    if (node.clip)
-                    {
-                        var maskGraphic = rect.gameObject.AddComponent<UnityEngine.UI.Image>();
-                        maskGraphic.raycastTarget = false;
-                        rect.gameObject.AddComponent<UnityEngine.UI.Mask>().showMaskGraphic = false;
-                    }
-
-                    if (node.image != null)
-                    {
-                        var image = node.image;
-                        var overhang = Mathf.Abs(image.x) > 0.01f || Mathf.Abs(image.y) > 0.01f
-                            || Mathf.Abs(image.w - node.width) > 0.01f || Mathf.Abs(image.h - node.height) > 0.01f;
-                        var imageRect = overhang || node.clip ? Rect("__raster", rect, image.w, image.h) : rect;
-                        if (overhang) imageRect.anchoredPosition = new Vector2(image.x, -image.y);
-                        var graphic = imageRect.gameObject.AddComponent<UnityEngine.UI.Image>();
-                        graphic.sprite = AssetDatabase.LoadAssetAtPath<Sprite>(imageFolder + "/" + image.key + ".png");
-                        graphic.type = UnityEngine.UI.Image.Type.Simple;
-                        graphic.useSpriteMesh = false;
-                        graphic.preserveAspect = false;
-                        graphic.raycastTarget = !overhang;
-                        if (graphic.sprite == null) throw new InvalidOperationException("Sprite was not imported: " + image.key);
-                    }
-                    if (node.text != null) Text(node.clip ? Rect("__text", rect, node.width, node.height) : rect, node, folder, fonts, notes);
-                }
-
-                var events = new GameObject("EventSystem", typeof(EventSystem));
-                SceneManager.MoveGameObjectToScene(events, scene);
-                var inputModule = Type.GetType("UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem");
-                if (inputModule != null)
-                {
-                    var module = events.AddComponent(inputModule);
-                    inputModule.GetMethod("AssignDefaultActions")?.Invoke(module, null);
-                }
-                else events.AddComponent<StandaloneInputModule>();
-
-                foreach (var font in fonts.Values)
-                    if (AssetDatabase.GetAssetPath(font).StartsWith(folder + "/Fonts/", StringComparison.Ordinal))
-                    {
-                        EditorUtility.SetDirty(font);
-                        foreach (var atlas in font.atlasTextures) if (atlas != null) EditorUtility.SetDirty(atlas);
-                        AssetDatabase.SaveAssetIfDirty(font);
-                    }
-                if (!EditorSceneManager.SaveScene(scene, scenePath)) throw new IOException("Could not save " + scenePath);
+                TMP_PackageResourceImporter.ImportResources(true, false, false);
+                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                if (Resources.Load<TMP_Settings>("TMP Settings") == null)
+                    throw new InvalidOperationException("TextMesh Pro essentials are being installed. Push the selection again when Unity finishes importing them.");
             }
-            finally
+
+            var rootNodeName = payload.nodes[0].name;
+
+            var canvasObject = new GameObject(rootNodeName, typeof(RectTransform), typeof(Canvas), typeof(UnityEngine.UI.GraphicRaycaster));
+            var canvas = canvasObject.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.referencePixelsPerUnit = 100;
+
+            var scaler = canvasObject.AddComponent<UnityEngine.UI.CanvasScaler>();
+            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(payload.nodes[0].width, payload.nodes[0].height);
+            scaler.screenMatchMode = UnityEngine.UI.CanvasScaler.ScreenMatchMode.Expand;
+            
+            var viewport = Rect("Viewport", canvasObject.transform, payload.nodes[0].width, payload.nodes[0].height);
+            viewport.anchorMin = viewport.anchorMax = viewport.pivot = new Vector2(0.5f, 0.5f);
+            viewport.anchoredPosition = Vector2.zero;
+            
+            var objects = new RectTransform[payload.nodes.Length];
+            var fonts = new Dictionary<string, TMP_FontAsset>(StringComparer.OrdinalIgnoreCase);
+
+
+            for (var i = 0; i < payload.nodes.Length; i++)
             {
-                if (previous.IsValid() && previous.isLoaded) SceneManager.SetActiveScene(previous);
-                EditorSceneManager.CloseScene(scene, true);
-            }
-            foreach (var note in notes) Debug.LogWarning("[InterfaceFerry] " + note);
-            Debug.Log("[InterfaceFerry] " + payload.nodes.Length + " nodes -> " + scenePath);
-            return new { ok = true, scene = scenePath, nodes = payload.nodes.Length, images, newImages, notes };
-        }
+                var node = payload.nodes[i];
+                var root = i == 0 || node.parentIndex < 0;
+                if (!root && (node.parentIndex >= i || node.parentIndex >= objects.Length))
+                {
+                    throw new ArgumentException("Invalid parentIndex at " + node.name);
+                }
+                
+                var parent = root 
+                    ? viewport 
+                    : objects[node.parentIndex];
+                var rect = Rect(node.name, parent, node.width, node.height);
+                objects[i] = rect;
+                if (root) rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+                var absolute = Affine.From(node.t);
+                var local = root ? new Affine { m00 = absolute.m00, m01 = absolute.m01, m10 = absolute.m10, m11 = absolute.m11 }
+                    : Affine.From(payload.nodes[node.parentIndex].t).Inverse() * absolute;
+                Transform(rect, local);
 
-        internal static Camera CreateCamera(Scene scene)
-        {
-            var cameraObject = new GameObject("MainCamera", typeof(Camera));
-            SceneManager.MoveGameObjectToScene(cameraObject, scene);
-            cameraObject.tag = "MainCamera";
-            cameraObject.transform.position = new Vector3(0, 0, -10);
-            var camera = cameraObject.GetComponent<Camera>();
-            camera.orthographic = true;
-            camera.orthographicSize = Height * 0.5f;
-            camera.clearFlags = CameraClearFlags.SolidColor;
-            camera.backgroundColor = Color.black;
-            // The overlay Canvas draws the UI; this camera supplies the display background.
-            camera.cullingMask = 0;
-            return camera;
+                // Add visual components before clipping and opacity helpers.
+                if (node.image != null)
+                {
+                    var image = node.image;
+                    var overhang = Mathf.Abs(image.x) > 0.01f || Mathf.Abs(image.y) > 0.01f
+                        || Mathf.Abs(image.w - node.width) > 0.01f || Mathf.Abs(image.h - node.height) > 0.01f;
+                    var imageRect = overhang || node.clip ? Rect("__raster", rect, image.w, image.h) : rect;
+                    if (overhang) imageRect.anchoredPosition = new Vector2(image.x, -image.y);
+                    var graphic = imageRect.gameObject.AddComponent<UnityEngine.UI.Image>();
+                    graphic.sprite = AssetDatabase.LoadAssetAtPath<Sprite>(imageFolder + "/" + image.key + ".png");
+                    graphic.type = UnityEngine.UI.Image.Type.Simple;
+                    graphic.useSpriteMesh = false;
+                    graphic.preserveAspect = false;
+                    graphic.raycastTarget = !overhang;
+                    if (graphic.sprite == null) throw new InvalidOperationException("Sprite was not imported: " + image.key);
+                }
+                if (node.text != null)
+                {
+                    Text(node.clip 
+                        ? Rect("__text", rect, node.width, node.height) 
+                        : rect, node, folder, fonts);
+                }
+
+                if (node.clip)
+                {
+                    var maskGraphic = rect.gameObject.AddComponent<UnityEngine.UI.Image>();
+                    maskGraphic.raycastTarget = false;
+                    rect.gameObject.AddComponent<UnityEngine.UI.Mask>().showMaskGraphic = false;
+                }
+                if (node.opacity < 0.9999f) rect.gameObject.AddComponent<CanvasGroup>().alpha = Mathf.Clamp01(node.opacity);
+            }
+
+            foreach (var font in fonts.Values)
+            {
+                if (AssetDatabase.GetAssetPath(font).StartsWith(folder + "/Fonts/", StringComparison.Ordinal))
+                {
+                    EditorUtility.SetDirty(font);
+                    foreach (var atlas in font.atlasTextures) if (atlas != null) EditorUtility.SetDirty(atlas);
+                    AssetDatabase.SaveAssetIfDirty(font);
+                }
+            }
+             
+            var localPath = folder + "/" + 
+                            FerryImporter.SanitizeName(rootNodeName) + ".prefab";
+            PrefabUtility.SaveAsPrefabAssetAndConnect(
+                canvasObject,
+                localPath,
+                InteractionMode.UserAction,
+                out var success);
+            
+            UnityEngine.Object.DestroyImmediate(canvasObject);
+            
+            return new { ok = success, prefab = localPath, nodes = payload.nodes.Length, totalImagesCount = totalImagesCount,
+                newImagesCount = newImagesCount, missingImagesCount = missingImagesCount };
         }
 
         static RectTransform Rect(string name, Transform parent, float width, float height)
@@ -166,29 +149,28 @@ namespace InterfaceFerry
         }
 
         static void Text(RectTransform rect, FerryNode node, string folder,
-            Dictionary<string, TMP_FontAsset> fonts, List<string> notes)
+            Dictionary<string, TMP_FontAsset> fonts)
         {
             if (node.text.shadow == null)
             {
-                CreateText(rect, node, folder, fonts, notes);
+                CreateText(rect, node, folder, fonts);
                 return;
             }
             var data = node.text.shadow;
             var shadowRect = Rect("__shadow", rect, node.width, node.height);
             shadowRect.anchoredPosition = new Vector2(data.x, -data.y);
-            var shadow = CreateText(shadowRect, node, folder, fonts, notes);
+            var shadow = CreateText(shadowRect, node, folder, fonts);
             shadow.color = ColorOf(data.color);
             shadow.ForceMeshUpdate(true);
-            CreateText(Rect("__text", rect, node.width, node.height), node, folder, fonts, notes);
-            if (data.blur > 0) notes.Add(node.name + ": uGUI text shadow preserves offset/color; its blur is not reproduced.");
+            CreateText(Rect("__text", rect, node.width, node.height), node, folder, fonts);
         }
 
         static TextMeshProUGUI CreateText(RectTransform rect, FerryNode node, string folder,
-            Dictionary<string, TMP_FontAsset> fonts, List<string> notes)
+            Dictionary<string, TMP_FontAsset> fonts)
         {
             var data = node.text;
             var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
-            text.font = Font(data, folder, fonts, notes);
+            text.font = Font(data, folder, fonts);
             text.fontSize = data.size;
             text.enableAutoSizing = false;
             text.fontStyle = FontStyles.Normal;
@@ -224,7 +206,7 @@ namespace InterfaceFerry
             return text;
         }
 
-        static TMP_FontAsset Font(FerryText data, string folder, Dictionary<string, TMP_FontAsset> fonts, List<string> notes)
+        static TMP_FontAsset Font(FerryText data, string folder, Dictionary<string, TMP_FontAsset> fonts)
         {
             var key = FerryFontAssets.Required(data.family, data.style);
             if (fonts.TryGetValue(key, out var cached)) return cached;
@@ -232,7 +214,6 @@ namespace InterfaceFerry
             var font = mapping.font;
             if (font == null)
             {
-                notes.Add(key + ": assign its font in " + folder + "/Fonts and re-import; uGUI currently uses the default font.");
                 var fallback = TMP_Settings.defaultFontAsset ?? Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
                 if (fallback != null) return fonts[key] = fallback;
                 throw new InvalidOperationException("No default TMP font is available. Assign the font for " + key + " and re-import.");

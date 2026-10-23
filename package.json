@@ -1,7 +1,7 @@
 {
   "name": "com.aroboss.interfaceferry",
   "displayName": "InterfaceFerry",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "unity": "6000.3",
   "description": "One-click, one-way push from Figma to Unity uGUI. Visible layers arrive as PNG sprites and editable text in a generated scene, preserving hierarchy and Figma transforms. Transport is Unity Pipeline's local /api/exec with its bearer token.",
   "keywords": [

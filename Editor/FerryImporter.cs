@@ -70,12 +70,15 @@ namespace InterfaceFerry
             EnsureFolder(folder);
             var missing = new List<string>();
             var keys = PushImages(nodes, imageFolder, missing, out var fresh);
+            
+            // import pngs
             foreach (var key in fresh)
+            {
                 AssetDatabase.ImportAsset(imageFolder + "/" + key + ".png", ImportAssetOptions.ForceSynchronousImport);
-            var notes = new List<string>();
-            if (missing.Count > 0)
-                notes.Add(missing.Count + " image(s) were not uploaded: " + string.Join(", ", missing));
-            return FerryUguiImporter.Import(payload, folder, imageFolder, keys.Count, fresh.Count, notes);
+            }
+            
+            // Create Prefab
+            return FerryUguiImporter.Import(payload, folder, imageFolder, keys.Count, fresh.Count, missing.Count);
         }
 
         internal static string FileFolder(string fileName) =>

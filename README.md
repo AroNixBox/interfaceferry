@@ -24,8 +24,10 @@ Output under `Assets/InterfaceFerry/`:
 ```
 
 ### Images:
-- The Hierarchy from Figma is transferred 1:1 into Unity. If a Figma node has a visual overflow (any effect that juts out its own size), a `__raster` Element is childed to the Element to keep the original hierarchy untouched.
-- If an Parent clips its visual content, both elements are exported as one to prevent a wrong display of the element.
+- The Figma hierarchy is preserved except where children must be baked together for clipping. If a node's graphics extend beyond its bounds (for example, a drop shadow), a `__raster` child holds the image at its exported size and offset. Visual overflow alone does not create a Mask.
+- A container with **Clip content** enabled uses a Unity Mask while its children remain separate, with its own image displayed in a `__raster` child. This does not automatically combine all of its children. If all children are baked into one PNG, clipping is already part of that image and no separate Unity Mask is needed.
+- If the container cuts a child's visible content, that child and every sibling below it in drawing order are baked into one PNG together with the container's own graphics. This preserves Figma's clipping and stacking order. The baked children are not recreated as individual Unity objects; children above the topmost cut child remain separate.
+- If the area that would be combined contains visible text, including text inside nested containers, none of those children are combined. They remain separate, text stays editable, and the container's Unity Mask handles clipping instead.
 
 
 ### Fonts:

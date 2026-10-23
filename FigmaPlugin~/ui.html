@@ -210,7 +210,7 @@
         if (j.unauthorized) { setConn('unauthorized'); throw new Error('Token rejected. Copy it again in Unity.'); }
         if (!j.ok) throw new Error('Unity could not import ' + name + ': ' + (j.detail || 'HTTP ' + j.httpError));
         if (!j.result.ok) throw new Error('Unity could not import ' + name + ': ' + (j.result.error || 'unknown'));
-        files.push(j.result.scene);
+        files.push(j.result.prefab);
         nodes += it.count;
         for (const n of (j.result.notes || [])) notes.push(n);
       }

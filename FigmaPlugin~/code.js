@@ -113,10 +113,14 @@ function drawsItself(node) {
   return !hasChildren(node) || node.type === 'BOOLEAN_OPERATION' || hasOwnVisuals(node);
 }
 
-// How many of a clipping container's children, from the bottom, are exported into its own picture.
-// A child exported on its own is not cut at all, so whatever the clip cuts goes into the container's PNG,
-// where Figma cuts it, together with everything beneath it so the stacking stays right. Children above
-// the topmost cut one stay separate elements. Text stays text: a cut slice holding text is not merged.
+// "Clip content" does not automatically flatten every child into the container's PNG.
+// Find the topmost child whose visible content is cut by the container. That child and every sibling
+// below it in drawing order are baked into one PNG together with the container's own graphics, so
+// Figma applies the clipping and preserves the stacking order. Children above that slice stay separate
+// Unity objects; the baked children are not recreated individually. The PNG may be placed in __raster.
+// If all children are baked, the container becomes a single image and needs no separate Unity Mask.
+// If the slice contains visible text (including nested text), merge none of the children: keep them
+// separate so text stays editable, and let Unity's Mask on the container perform the clipping instead.
 function cutSlice(node, ctx) {
   if (node.clipsContent !== true || !hasChildren(node)) return 0;
   let top = -1;
